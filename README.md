@@ -127,7 +127,7 @@ Each cue is one capture (~50–200ms) — budget accordingly for many cues. Use 
 ## Example app
 
 ```sh
-git clone https://github.com/lehoi2195/react-native-video-overlay.git && cd react-native-video-overlay && yarn
+git clone https://github.com/lehoi2195/rn-video-overlay.git && cd rn-video-overlay && yarn
 yarn example ios   # or: yarn example android
 ```
 
