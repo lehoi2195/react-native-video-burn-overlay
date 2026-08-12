@@ -12,7 +12,6 @@
   "dependencies": {
     "@dr.pogodin/react-native-fs": "^2.39.2",
     "@react-native-camera-roll/camera-roll": "7.10.2",
-    "@rx/react-native-video-overlay": "workspace:*",
     "react": "19.2.3",
     "react-native": "0.85.0",
     "react-native-create-thumbnail": "^2.2.0",
@@ -22,7 +21,8 @@
     "react-native-safe-area-context": "5.8.1",
     "react-native-share": "^12.3.1",
     "react-native-view-shot": "^5.1.1",
-    "react-native-vision-camera": "5.2.2"
+    "react-native-vision-camera": "5.2.2",
+    "rn-video-overlay": "workspace:*"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",

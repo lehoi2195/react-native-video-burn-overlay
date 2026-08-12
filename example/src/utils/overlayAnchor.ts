@@ -1,7 +1,7 @@
 import type {
   OverlayPosition,
   OverlayPositionCoordinate,
-} from '@rx/react-native-video-overlay';
+} from 'rn-video-overlay';
 
 export interface OverlayAnchor {
   left: number;

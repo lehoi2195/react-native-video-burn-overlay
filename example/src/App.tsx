@@ -18,7 +18,7 @@ import {
 import { launchImageLibrary } from 'react-native-image-picker';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import ViewShot, { type ViewShotRef } from 'react-native-view-shot';
-import { burnOverlay } from '@rx/react-native-video-overlay';
+import { burnOverlay } from 'rn-video-overlay';
 import CameraRecorder, {
   FRAME_ASPECT_RATIO as RECORDER_FRAME_ASPECT_RATIO,
 } from './components/CameraRecorder';

@@ -1,5 +1,5 @@
 import type { RefObject } from 'react';
-import type { OverlayCue } from '@rx/react-native-video-overlay';
+import type { OverlayCue } from 'rn-video-overlay';
 import type { ViewShotRef } from 'react-native-view-shot';
 import { stripFileScheme } from './videoPaths';
 

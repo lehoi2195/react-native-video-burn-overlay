@@ -1,4 +1,4 @@
-import type { OverlayPosition } from '@rx/react-native-video-overlay';
+import type { OverlayPosition } from 'rn-video-overlay';
 
 /** Lifecycle of the `burnOverlay` call driving the status UI in `App`. */
 export type BurnStatus = 'idle' | 'burning' | 'done' | 'error';

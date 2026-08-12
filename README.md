@@ -1,10 +1,10 @@
 <div align="center">
 
-# 🎬 @rx/react-native-video-overlay
+# 🎬 rn-video-overlay
 
 **Burn a text or image overlay permanently into a recorded video's pixels — native APIs only, no FFmpeg.**
 
-[![npm version](https://img.shields.io/npm/v/@rx/react-native-video-overlay.svg?style=flat-square&label=npm)](https://www.npmjs.com/package/@rx/react-native-video-overlay) [![License](https://img.shields.io/badge/license-MIT-orange.svg?style=flat-square)](https://opensource.org/licenses/MIT) [![New Architecture](https://img.shields.io/badge/New%20Architecture-Only-8A2BE2.svg?style=flat-square)](https://reactnative.dev/architecture/landing-page)
+[![npm version](https://img.shields.io/npm/v/rn-video-overlay.svg?style=flat-square&label=npm)](https://www.npmjs.com/package/rn-video-overlay) [![License](https://img.shields.io/badge/license-MIT-orange.svg?style=flat-square)](https://opensource.org/licenses/MIT) [![New Architecture](https://img.shields.io/badge/New%20Architecture-Only-8A2BE2.svg?style=flat-square)](https://reactnative.dev/architecture/landing-page)
 
 </div>
 
@@ -22,7 +22,7 @@
 ## Install
 
 ```sh
-yarn add @rx/react-native-video-overlay
+yarn add rn-video-overlay
 cd ios && pod install
 ```
 
@@ -31,7 +31,7 @@ Requires the **New Architecture** (TurboModule). iOS 15.1+, Android minSdk 24+.
 ## Usage
 
 ```ts
-import { burnOverlay } from '@rx/react-native-video-overlay';
+import { burnOverlay } from 'rn-video-overlay';
 
 await burnOverlay({
   inputPath: '/path/to/video.mp4', // source — never modified or deleted

@@ -1,5 +1,5 @@
 import { Platform } from 'react-native';
-import type { OverlayPositionPreset } from '@rx/react-native-video-overlay';
+import type { OverlayPositionPreset } from 'rn-video-overlay';
 import type { OverlayFontWeight, ResolvedOverlayStyle } from '../types';
 
 // Seed value for the Auto-to-Fixed switch, roughly matching the auto formula's 1080p output.
