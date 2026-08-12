@@ -1,7 +1,21 @@
-import { TurboModuleRegistry, type TurboModule } from 'react-native';
+import type { TurboModule } from 'react-native';
+import { TurboModuleRegistry } from 'react-native';
 
+/** Native-only overlay burning (no third-party libs), avoiding licensing constraints and extra binary size. */
 export interface Spec extends TurboModule {
-  multiply(a: number, b: number): number;
+  /**
+   * @param videoPath Filesystem path to the source video (no `file://` prefix).
+   * @param outputPath Filesystem path to write the burned result to.
+   * @param cuesJson JSON-stringified `OverlayCue[]`, passed as a string since codegen supports that type most reliably.
+   * @param styleJson JSON-stringified `OverlayStyle` (may be `"{}"`); missing or invalid fields fall back to defaults.
+   * @returns The output path of the burned video.
+   */
+  burnOverlay(
+    videoPath: string,
+    outputPath: string,
+    cuesJson: string,
+    styleJson: string
+  ): Promise<string>;
 }
 
 export default TurboModuleRegistry.getEnforcing<Spec>('VideoOverlay');

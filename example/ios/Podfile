@@ -6,4 +6,33 @@ require "#{ws_dir}/node_modules/react-native-test-app/test_app.rb"
 
 workspace 'VideoOverlayExample.xcworkspace'
 
-use_test_app! :hermes_enabled => true, :fabric_enabled => true
+# Info.plist keys must be injected via post_install since RNTA regenerates Info.plist fresh every pod install.
+#
+# IMPORTANT: edit the real Info.plist file directly; RNTA never synthesizes INFOPLIST_KEY_* build settings.
+#
+# Pass logic via :post_install option; a second post_install block would silently replace RNTA's own hook.
+usage_description_post_install = lambda do |installer|
+  info_plist_path = File.join(__dir__, '..', 'node_modules', '.generated', 'ios', 'Info.plist')
+  unless File.exist?(info_plist_path)
+    raise "post_install: expected RNTA-generated Info.plist at #{info_plist_path} but it was missing"
+  end
+
+  {
+    'NSCameraUsageDescription' => 'This app needs camera access to record video for the overlay demo.',
+    'NSMicrophoneUsageDescription' => 'This app needs microphone access to record audio with your video.',
+    'NSPhotoLibraryAddUsageDescription' => 'This app needs access to save the burned video to your photo library.',
+    # PHPhotoLibrary's addOnly authorization path still probes this general key's mere presence; without
+    # it the app hard-crashes even though we never read the library, only write via saveAsset.
+    'NSPhotoLibraryUsageDescription' => 'This app needs access to save the burned video to your photo library.',
+  }.each do |key, value|
+    # Delete first so Add always succeeds, since RNTA's template may already define the key.
+    system('/usr/libexec/PlistBuddy', '-c', "Delete :#{key}", info_plist_path, err: File::NULL)
+    system('/usr/libexec/PlistBuddy', '-c', "Add :#{key} string \"#{value}\"", info_plist_path)
+  end
+end
+
+use_test_app!(
+  :hermes_enabled => true,
+  :fabric_enabled => true,
+  :post_install => usage_description_post_install
+)

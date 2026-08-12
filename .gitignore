@@ -9,6 +9,9 @@
 .vscode/
 jsconfig.json
 
+# Claude Code
+.claude/
+
 # Xcode
 #
 build/
@@ -84,3 +87,4 @@ android/generated
 
 # React Native Nitro Modules
 nitrogen/
+example/ios/.xcode.env

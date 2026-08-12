@@ -4,9 +4,11 @@
   "components": [
     {
       "appKey": "VideoOverlayExample",
-      "displayName": "VideoOverlayExample"
+      "displayName": "VideoOverlayExample",
+      "slug": "main"
     }
   ],
+  "singleApp": "main",
   "resources": {
     "android": [
       "dist/res",
@@ -30,7 +32,23 @@
     ]
   },
   "android": {
-    "package": "videooverlay.example"
+    "package": "videooverlay.example",
+    "permissions": [
+      { "android:name": "android.permission.INTERNET" },
+      { "android:name": "android.permission.ACCESS_NETWORK_STATE" },
+      { "android:name": "android.permission.CAMERA" },
+      { "android:name": "android.permission.RECORD_AUDIO" },
+      { "android:name": "android.permission.READ_MEDIA_IMAGES" },
+      { "android:name": "android.permission.READ_MEDIA_VIDEO" },
+      {
+        "android:name": "android.permission.READ_EXTERNAL_STORAGE",
+        "android:maxSdkVersion": "32"
+      },
+      {
+        "android:name": "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android:maxSdkVersion": "28"
+      }
+    ]
   },
   "ios": {
     "bundleIdentifier": "videooverlay.example"
