@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented here.
 
+## [0.0.4] - 2026-08-13
+
+### Changed
+
+- `package.json` `keywords` expanded from 3 to 23 terms for npm search discoverability (video overlay/watermark/timestamp/gps use cases, `react-native-video-overlay` for the pre-rename package name, platform/technical terms).
+
 ## [0.0.3] - 2026-08-13
 
 ### Changed
