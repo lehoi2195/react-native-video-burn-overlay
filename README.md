@@ -19,6 +19,43 @@
 - 📼 Source video is **never modified or deleted**
 - 📱 Built for the **New Architecture** (TurboModule), iOS + Android
 
+## Example app
+
+```sh
+git clone https://github.com/lehoi2195/rn-video-overlay.git && cd rn-video-overlay && yarn
+yarn example ios   # or: yarn example android
+```
+
+<p align="center">
+  <img src="example/src/assest/demo.png" width="45%" alt="Example app — style settings panel" />
+  <img src="example/src/assest/demo2.png" width="45%" alt="Example app — live camera recording with a time/GPS/address overlay" />
+</p>
+
+A full showcase app:
+
+- **Style panel** — text/stroke color, font, font scale, margin, and position (9 presets or a custom `{ x, y }`), live-updating preview before burning
+- **Source video** — pick one from the library, or record live with the device camera (via [`react-native-vision-camera`](https://github.com/mrousavy/react-native-vision-camera)); both paths feed the same burn pipeline
+- **Image overlay mode** — demonstrates the `imagePath` custom-layout flow (see [Custom layouts](#custom-layouts)): pick a photo from your device, it resizes live into the overlay
+- **After burning** — open the result in the device's default video player, or save it to Camera Roll (via [`@react-native-camera-roll/camera-roll`](https://github.com/react-native-cameraroll/react-native-cameraroll))
+
+The recording screen also frames a fixed 3:4 viewfinder and passes that same ratio as `cropAspectRatio` when it burns the clip — a working example of keeping a custom preview UI and the burned output in agreement (see the `cropAspectRatio` note below).
+
+The example app deliberately does **not** use `react-native-video` for playback — see the note below.
+
+### Why no `react-native-video` in the example app
+
+`react-native-vision-camera`'s recording path hard-requires two things that can't both be satisfied in one app:
+
+- `androidx.camera:camera-video` (currently pinned to an unreleased CameraX `1.7.0-alpha02`) requires `androidx.media3:media3-muxer` 1.9.0+, with no fallback to the legacy platform muxer.
+- `react-native-video`'s compiled `ReactExoplayerView.java` calls a `DefaultLoadControl` constructor overload that media3 1.9.0 removed outright, so it can't compile against anything newer than 1.8.x.
+
+Recording is the more central demo of this library's video-capture path, so the example app instead:
+
+- previews the picked/recorded source as a static extracted frame (via [`react-native-create-thumbnail`](https://github.com/rurea/react-native-create-thumbnail)) rather than live playback
+- hands the burned result off to the OS's own video player (via [`react-native-file-viewer`](https://github.com/vinzscam/react-native-file-viewer)'s `ACTION_VIEW`/`UIDocumentInteractionController`, not a share sheet — video players register to *view* files, not receive *shared* ones) instead of embedding a player
+
+This is purely an example-app dependency conflict — `burnOverlay` itself has no media3/CameraX dependency at all (its native pipeline uses only platform `MediaExtractor`/`MediaCodec`/`MediaMuxer`/AVFoundation APIs).
+
 ## Install
 
 ```sh
@@ -60,7 +97,12 @@ Each **cue** is a `[startSec, endSec)` time window plus what to show. One cue pe
 
 Rejects if the source has no video track, `cues` is empty/malformed, or the encoder fails. An unreadable `imagePath` is skipped silently, not a rejection.
 
-> **`cropAspectRatio` exists because a camera's preview and its recording are not always the same shape.** On Android the two are separate CameraX use cases: the preview commonly runs the full 4:3 sensor while `VideoCapture` records a 16:9 crop of it, so a viewfinder composed at one ratio silently disagrees with the file — the sides get trimmed on burn. iOS shares one `AVCaptureSession` preset, so it usually matches already. Passing the ratio your UI composed against makes the burned output that shape on both platforms, and overlay anchoring plus the auto font size are computed against the cropped frame, so the result lines up with the preview. It only ever trims: the source is never padded or scaled up, so cropping to a ratio further from the source's own discards more picture.
+**Why `cropAspectRatio` exists:** a camera's preview and its recording aren't always the same shape.
+
+- On Android, preview and recording are separate CameraX use cases — preview commonly runs the full 4:3 sensor while `VideoCapture` records a 16:9 crop of it, so a viewfinder composed at one ratio silently disagrees with the file.
+- iOS shares one `AVCaptureSession` preset, so it usually matches already.
+- Passing the ratio your UI composed against makes the burned output that shape on both platforms — overlay anchoring and the auto font size are computed against the cropped frame, so the result lines up with the preview.
+- It only ever trims: the source is never padded or scaled up. Cropping to a ratio further from the source's own discards more picture.
 
 ### `OverlayCue`
 
@@ -83,14 +125,24 @@ Use **one** of `lines` / `imagePath` (image wins if both are set). Images compos
 | `strokeColor` | `'#000000'` | Outline color. `lines` only. |
 | `strokeWidth` | auto (relative to font size) | Outline thickness in px. `0` disables the stroke entirely. `lines` only. |
 | `fontFamily` | system font | Unknown names fall back silently. `lines` only. |
-| `fontWeight` | `'normal'` | `'normal'` \| `'bold'` \| `'100'`...`'900'` (CSS/RN scale; `'bold'` = `'700'`). Weight of the system font fallback used when `fontFamily` is not set. `lines` only. iOS: no effect once a custom `fontFamily` resolves (its PostScript name already bakes in a weight). Android: also applies to a custom `fontFamily`, since `Typeface.create` still honors it; on API 24-27 (minSdk) it degrades to the old binary NORMAL/BOLD styles (600+ -> bold). |
+| `fontWeight` | `'normal'` | `'normal'` \| `'bold'` \| `'100'`...`'900'` (CSS/RN scale). `lines` only — see platform notes below. |
 | `fontScale` | `1.0` | Clamped `0.5–3.0`. `lines` only. No effect when `fontSize` is also set. |
 | `fontSize` | auto (video short edge × ratio) | Absolute px. `lines` only. When set, bypasses BOTH the auto-computed size AND `fontScale` entirely (no double-scaling). |
 | `position` | `'bottomLeft'` | `topLeft` \| `topCenter` \| `topRight` \| `centerLeft` \| `center` \| `centerRight` \| `bottomLeft` \| `bottomCenter` \| `bottomRight`, or `{ x, y }` (each 0–1) for exact placement — `marginRatio` doesn't apply to `{ x, y }`. Applies to both `lines` and `imagePath`. |
 | `marginRatio` | `0.05` | Fraction of video width, `0–0.5`. Applies to both. |
 | `opacity` | `1.0` | Clamped `0–1`. Real native alpha blending. Applies to both `lines` and `imagePath`. |
 
-> **`fontSize` is in the *output video's own pixel space*, not a typical UI/CSS size.** The default (unset) `fontScale`-driven auto formula is `min(videoWidth, videoHeight) * ~0.03` — that self-scales correctly no matter the video's resolution, which is why it's the default and why `fontScale` "just works" across devices. `fontSize`, by contrast, is an *absolute* pixel count in that same coordinate space: `fontSize: 40` means exactly 40px tall text burned into the video, full stop — on a 1080p (1920×1080) video that's under 4% of the frame height, and it gets proportionally tinier on a 4K source. It's an intentional escape hatch for callers who know their video's exact resolution and want pixel-precise control (e.g. matching a design mockup), not a general-purpose "make the text this size" knob — reach for `fontScale` unless you specifically need that. If you build your own preview UI (as the example app does), remember to scale `fontSize` by `previewFrameWidth / realVideoWidth` before handing it to a `<Text>` component, or it'll look wildly larger in an on-screen preview than in the actual burned output.
+**`fontWeight`** sets the weight of the system font fallback used when `fontFamily` is not set:
+
+- **iOS:** no effect once a custom `fontFamily` resolves — its PostScript name already bakes in a weight.
+- **Android:** also applies to a custom `fontFamily`, since `Typeface.create` still honors it. On API 24-27 (minSdk) it degrades to the old binary NORMAL/BOLD styles (600+ → bold).
+
+**`fontSize` is in the *output video's own pixel space*, not a typical UI/CSS size.**
+
+- Default (unset): the `fontScale`-driven auto formula is `min(videoWidth, videoHeight) × ~0.03` — self-scales correctly no matter the video's resolution, which is why it's the default and why `fontScale` "just works" across devices.
+- `fontSize`, by contrast, is an *absolute* pixel count in that same coordinate space: `fontSize: 40` means exactly 40px tall text burned into the video, full stop — under 4% of frame height on a 1080p (1920×1080) video, proportionally tinier on 4K.
+- It's an intentional escape hatch for callers who know their video's exact resolution and want pixel-precise control (e.g. matching a design mockup) — reach for `fontScale` unless you specifically need that.
+- Building your own preview UI (as the example app does)? Scale `fontSize` by `previewFrameWidth / realVideoWidth` before handing it to a `<Text>` component, or it'll look wildly larger on screen than in the actual burned output.
 
 ## Custom layouts
 
@@ -123,28 +175,6 @@ async function buildImageCue(viewShotRef: RefObject<ViewShotRef | null>): Promis
 ```
 
 Each cue is one capture (~50–200ms) — budget accordingly for many cues. Use `imagePath` only when `lines` isn't enough. See [`example/src/components/PickedImageOverlay.tsx`](example/src/components/PickedImageOverlay.tsx) and [`example/src/utils/cueBuilders.ts`](example/src/utils/cueBuilders.ts) for a complete working version — the example app's "Image overlay" mode lets you pick any photo from your device, resizes it to a configurable box via this exact pattern, and burns the result in.
-
-## Example app
-
-```sh
-git clone https://github.com/lehoi2195/rn-video-overlay.git && cd rn-video-overlay && yarn
-yarn example ios   # or: yarn example android
-```
-
-A full showcase app: customize text/stroke color, font, font scale, margin, and position (9 presets or a custom `{ x, y }`) in a live-updating settings panel, preview the result before burning, and provide the source video either by **picking one from the library** or by **recording one live with the device camera** (via [`react-native-vision-camera`](https://github.com/mrousavy/react-native-vision-camera)) — both paths feed the same burn pipeline. Also demonstrates the `imagePath` custom-layout flow (see [Custom layouts](#custom-layouts)) via an "Image overlay" mode that lets you pick a photo from your device and resizes it live into the overlay. Once burning finishes, the app lets you **open the result in the device's default video player** or **save it to Camera Roll** (via [`@react-native-camera-roll/camera-roll`](https://github.com/react-native-cameraroll/react-native-cameraroll)).
-
-The recording screen frames a fixed 3:4 viewfinder and passes that same ratio as `cropAspectRatio` when it burns the clip — a working example of keeping a custom preview UI and the burned output in agreement (see the `cropAspectRatio` note above).
-
-The example app deliberately does **not** use `react-native-video` for playback — see the note below.
-
-### Why no `react-native-video` in the example app
-
-`react-native-vision-camera`'s recording path (`androidx.camera:camera-video`, currently pinned to an unreleased CameraX `1.7.0-alpha02`) hard-requires `androidx.media3:media3-muxer` 1.9.0 with no fallback to the legacy platform muxer. `react-native-video`'s compiled `ReactExoplayerView.java` calls a `DefaultLoadControl` constructor overload that media3 1.9.0 removed outright, so it cannot compile against anything newer than 1.8.x. Both constraints are hard requirements at the same time, so the two libraries can't currently coexist in one app. Recording is the more central demo of this library's video-capture path, so the example app instead:
-
-- previews the picked/recorded source as a static extracted frame (via [`react-native-create-thumbnail`](https://github.com/rurea/react-native-create-thumbnail)) rather than live playback
-- hands the burned result off to the OS's own video player (via [`react-native-share`](https://github.com/react-native-share/react-native-share)'s `Share.open`) instead of embedding a player
-
-This is purely an example-app dependency conflict — `burnOverlay` itself has no media3/CameraX dependency at all (its native pipeline uses only platform `MediaExtractor`/`MediaCodec`/`MediaMuxer`/AVFoundation APIs).
 
 ## Known limitations
 

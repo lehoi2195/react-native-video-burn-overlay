@@ -10,6 +10,7 @@ import {
   Linking,
   Modal,
   Platform,
+  StatusBar,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -30,9 +31,20 @@ import {
   type Size as VideoResolution,
   type TorchMode,
 } from 'react-native-vision-camera';
+import type { OverlayCue } from 'rn-video-overlay';
 import { clamp, TEXT_COLORS } from '../constants/styleOptions';
 import type { ResolvedOverlayStyle } from '../types';
+import { buildLocationStampCues } from '../utils/cueBuilders';
+import { useLocationStamp } from '../utils/useLocationStamp';
 import OverlayPreview, { type Size } from './OverlayPreview';
+import StyleSettingsPanel from './StyleSettingsPanel';
+
+/** Screen background; the status bar is painted the same so there's no seam at the top edge. */
+const SCREEN_BACKGROUND = '#141B2A';
+
+// StyleSettingsPanel needs image-overlay props; this screen never uses image mode.
+const NOOP_IMAGE_OVERLAY_DIMENSION = 30;
+function noop(): void {}
 
 /** Additive step per tap of the zoom +/- buttons. */
 const ZOOM_STEP = 0.5;
@@ -52,15 +64,11 @@ export const FRAME_ASPECT_RATIO = 3 / 4;
 interface CameraRecorderProps {
   visible: boolean;
   onClose: () => void;
-  /** Called with the recording's path plus its real pixel size, in display (portrait) orientation. */
-  onRecorded: (path: string, resolution: Size) => void;
+  /** Path, real pixel size, and the per-second location-stamp cues already built for it. */
+  onRecorded: (path: string, resolution: Size, cues: OverlayCue[]) => void;
   /** Overlay style state owned by `App`; only the text color is editable from here. */
   style: ResolvedOverlayStyle;
   onStyleChange: (next: ResolvedOverlayStyle) => void;
-  /** Precomputed overlay preview content — mirrors `App`'s own `OverlayPreview` call. */
-  previewLines: string[];
-  previewCustomContent?: ReactElement;
-  previewCustomContentSize?: Size;
 }
 
 /** Formats a whole-second duration as `MM:SS`, e.g. `65` -> `"01:05"`. */
@@ -111,13 +119,10 @@ export default function CameraRecorder({
   onRecorded,
   style,
   onStyleChange,
-  previewLines,
-  previewCustomContent,
-  previewCustomContentSize,
 }: CameraRecorderProps): ReactElement {
   const insets = useSafeAreaInsets();
-  // Android draws this modal below the status bar already; iOS would slide under the notch.
-  const topInset = Platform.OS === 'ios' ? insets.top : 0;
+  // Translucent status bar (edge-to-edge) means content now renders under it on both platforms.
+  const topInset = insets.top;
   const [cameraPosition, setCameraPosition] = useState<'back' | 'front'>(
     'back'
   );
@@ -171,8 +176,11 @@ export default function CameraRecorder({
       : { width, height: width / captureRatio };
   }, [frameSize, captureRatio]);
 
+  const locationStamp = useLocationStamp();
+
   const cameraRef = useRef<CameraRef>(null);
   const recorderRef = useRef<Recorder | null>(null);
+  const startedAtRef = useRef<Date | null>(null);
 
   const [isRecording, setIsRecording] = useState(false);
   const [isStarting, setIsStarting] = useState(false);
@@ -185,6 +193,7 @@ export default function CameraRecorder({
   const [zoom, setZoom] = useState(1);
   // Whole seconds elapsed, shown as the MM:SS badge; resets to 0 every new recording.
   const [recordingElapsedSec, setRecordingElapsedSec] = useState(0);
+  const [settingsVisible, setSettingsVisible] = useState(false);
 
   // requestPermission()'s resolved boolean, captured directly instead of relying on the reactive hasPermission.
   const [manuallyGrantedCamera, setManuallyGrantedCamera] = useState(false);
@@ -201,11 +210,27 @@ export default function CameraRecorder({
       setIsCameraActive(false);
       setIsTorchReady(false);
       setActualResolution(null);
+      setSettingsVisible(false);
       setZoom((previous) =>
         device ? clamp(previous, device.minZoom, device.maxZoom) : previous
       );
     }
   }, [visible, device]);
+
+  // Edge-to-edge (targetSdk 36) ignores setBackgroundColor; translucent lets root's own dark bg show through.
+  useEffect(() => {
+    if (!visible) return;
+    StatusBar.setBarStyle('light-content');
+    if (Platform.OS === 'android') {
+      StatusBar.setTranslucent(true);
+    }
+    return () => {
+      StatusBar.setBarStyle('dark-content');
+      if (Platform.OS === 'android') {
+        StatusBar.setTranslucent(false);
+      }
+    };
+  }, [visible]);
 
   // Tracks a start timestamp, not a counter, so elapsed time stays accurate under JS-thread delays.
   useEffect(() => {
@@ -255,6 +280,9 @@ export default function CameraRecorder({
   const startRecording = useCallback(async (): Promise<void> => {
     setErrorMessage('');
     setIsStarting(true);
+    const startedAt = new Date();
+    startedAtRef.current = startedAt;
+    locationStamp.start(startedAt);
     try {
       const recorder = await videoOutput.createRecorder({});
       recorderRef.current = recorder;
@@ -262,28 +290,37 @@ export default function CameraRecorder({
         (filePath) => {
           recorderRef.current = null;
           setIsRecording(false);
+          const samples = locationStamp.stop();
+          const cues = buildLocationStampCues(
+            samples,
+            startedAtRef.current ?? startedAt,
+            locationStamp.addressLines
+          );
           // Re-read rather than reuse state, so the size reported up is the one just recorded at.
           const finalSize = videoOutput.currentResolution ?? targetResolution;
-          onRecorded(filePath, {
-            width: shortEdge(finalSize),
-            height: longEdge(finalSize),
-          });
+          onRecorded(
+            filePath,
+            { width: shortEdge(finalSize), height: longEdge(finalSize) },
+            cues
+          );
         },
         (error) => {
           recorderRef.current = null;
           setIsRecording(false);
+          locationStamp.stop();
           setErrorMessage(firstLineOf(error.message));
         }
       );
       setIsRecording(true);
     } catch (error) {
+      locationStamp.stop();
       setErrorMessage(
         firstLineOf(error instanceof Error ? error.message : String(error))
       );
     } finally {
       setIsStarting(false);
     }
-  }, [videoOutput, onRecorded, targetResolution]);
+  }, [videoOutput, onRecorded, targetResolution, locationStamp]);
 
   const stopRecording = useCallback(async (): Promise<void> => {
     try {
@@ -415,7 +452,12 @@ export default function CameraRecorder({
   }, [effectiveTorchMode]);
 
   return (
-    <Modal visible={visible} animationType="slide" onRequestClose={handleClose}>
+    <Modal
+      visible={visible}
+      animationType="slide"
+      onRequestClose={handleClose}
+      statusBarTranslucent
+    >
       <View style={styles.root}>
         {!hasAllPermissions ? (
           <View style={styles.gate}>
@@ -469,18 +511,9 @@ export default function CameraRecorder({
               <Text style={styles.topBarTitle}>Record video</Text>
               <TouchableOpacity
                 style={styles.topBarButton}
-                onPress={toggleTorch}
-                disabled={!device.hasTorch || !isCameraActive}
+                onPress={() => setSettingsVisible(true)}
               >
-                <Text
-                  style={[
-                    styles.topBarIcon,
-                    (!device.hasTorch || !isCameraActive) &&
-                      styles.topBarIconDisabled,
-                  ]}
-                >
-                  {torchOn ? '⚡️' : '⚡'}
-                </Text>
+                <Text style={styles.settingsIcon}>⚙️</Text>
               </TouchableOpacity>
             </View>
 
@@ -501,10 +534,8 @@ export default function CameraRecorder({
               <View style={styles.viewfinder} onLayout={handleFrameLayout}>
                 <OverlayPreview
                   aspectRatio={FRAME_ASPECT_RATIO}
-                  lines={previewLines}
+                  lines={locationStamp.previewLines}
                   style={style}
-                  customContent={previewCustomContent}
-                  customContentSize={previewCustomContentSize}
                   sourceWidth={shortEdge(recordedResolution)}
                   frameStyle={styles.viewfinderFrame}
                   backgroundContent={
@@ -564,7 +595,6 @@ export default function CameraRecorder({
 
             <View style={[styles.controls, { paddingBottom: insets.bottom }]}>
               <View style={styles.colorRow}>
-                <Text style={styles.colorLabel}>Text color</Text>
                 {TEXT_COLORS.map((color) => (
                   <TouchableOpacity
                     key={color}
@@ -579,7 +609,23 @@ export default function CameraRecorder({
               </View>
 
               <View style={styles.recordRow}>
-                <View style={styles.recordRowSlot} />
+                <View style={styles.recordRowSlot}>
+                  <TouchableOpacity
+                    style={styles.flashButton}
+                    onPress={toggleTorch}
+                    disabled={!device.hasTorch || !isCameraActive}
+                  >
+                    <Text
+                      style={[
+                        styles.flashButtonText,
+                        (!device.hasTorch || !isCameraActive) &&
+                          styles.topBarIconDisabled,
+                      ]}
+                    >
+                      {torchOn ? '⚡️' : '⚡'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
                 <TouchableOpacity
                   style={styles.recordButtonOuter}
                   onPress={handleRecordPress}
@@ -605,6 +651,18 @@ export default function CameraRecorder({
                 </View>
               </View>
             </View>
+
+            <StyleSettingsPanel
+              visible={settingsVisible}
+              mode="text"
+              style={style}
+              onChange={onStyleChange}
+              onClose={() => setSettingsVisible(false)}
+              imageOverlayWidth={NOOP_IMAGE_OVERLAY_DIMENSION}
+              imageOverlayHeight={NOOP_IMAGE_OVERLAY_DIMENSION}
+              onImageOverlayWidthChange={noop}
+              onImageOverlayHeightChange={noop}
+            />
           </>
         )}
       </View>
@@ -615,7 +673,7 @@ export default function CameraRecorder({
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: '#141B2A',
+    backgroundColor: SCREEN_BACKGROUND,
   },
   gate: {
     flex: 1,
@@ -666,15 +724,20 @@ const styles = StyleSheet.create({
     paddingBottom: 12,
   },
   topBarButton: {
-    width: 44,
-    height: 44,
+    width: 48,
+    height: 48,
     alignItems: 'center',
     justifyContent: 'center',
   },
+  // translateY corrects the glyph sitting visibly low within its touch target.
   topBarIcon: {
     color: '#FFFFFF',
-    fontSize: 24,
+    fontSize: 34,
     fontWeight: '600',
+    transform: [{ translateY: -2 }],
+  },
+  settingsIcon: {
+    fontSize: 22,
   },
   topBarIconDisabled: {
     opacity: 0.3,
@@ -779,7 +842,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingTop: 16,
     gap: 16,
-    backgroundColor: '#141B2A',
+    backgroundColor: SCREEN_BACKGROUND,
   },
   colorRow: {
     flexDirection: 'row',
@@ -789,11 +852,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
     borderRadius: 24,
     backgroundColor: 'rgba(255, 255, 255, 0.1)',
-  },
-  colorLabel: {
-    color: '#FFFFFF',
-    fontSize: 15,
-    fontWeight: '600',
   },
   swatch: {
     width: 32,
@@ -819,6 +877,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   flipButton: {
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  flipButtonText: {
+    color: '#FFFFFF',
+    fontSize: 30,
+    transform: [{ translateY: -1 }],
+  },
+  flashButton: {
     width: 48,
     height: 48,
     borderRadius: 24,
@@ -826,8 +897,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: 'rgba(255, 255, 255, 0.1)',
   },
-  flipButtonText: {
-    color: '#FFFFFF',
+  flashButtonText: {
     fontSize: 22,
   },
   recordButtonOuter: {

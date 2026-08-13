@@ -15,11 +15,12 @@
     "react": "19.2.3",
     "react-native": "0.85.0",
     "react-native-create-thumbnail": "^2.2.0",
+    "react-native-file-viewer": "^2.1.5",
+    "react-native-geolocation-service": "^5.3.1",
     "react-native-image-picker": "^8.2.1",
     "react-native-nitro-image": "^0.15.1",
     "react-native-nitro-modules": "^0.36.5",
     "react-native-safe-area-context": "5.8.1",
-    "react-native-share": "^12.3.1",
     "react-native-view-shot": "^5.1.1",
     "react-native-vision-camera": "5.2.2",
     "rn-video-overlay": "workspace:*"

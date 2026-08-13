@@ -38,6 +38,8 @@
       { "android:name": "android.permission.ACCESS_NETWORK_STATE" },
       { "android:name": "android.permission.CAMERA" },
       { "android:name": "android.permission.RECORD_AUDIO" },
+      { "android:name": "android.permission.ACCESS_FINE_LOCATION" },
+      { "android:name": "android.permission.ACCESS_COARSE_LOCATION" },
       { "android:name": "android.permission.READ_MEDIA_IMAGES" },
       { "android:name": "android.permission.READ_MEDIA_VIDEO" },
       {

@@ -8,10 +8,10 @@ export const DEFAULT_FONT_SIZE_PX = 40;
 // fontSize stays undefined by default — auto/fontScale mode self-scales correctly for any video
 // resolution, while a fixed fontSize is an opt-in advanced feature (see README's fontSize note).
 export const DEFAULT_STYLE: ResolvedOverlayStyle = {
-  textColor: '#000000',
+  textColor: '#FFFFFF',
   strokeColor: '#000000',
   fontFamily: undefined,
-  fontWeight: 'normal',
+  fontWeight: '500',
   fontScale: 1,
   fontSize: undefined,
   // 0 disables the outline; strokeColor is kept as the value a stroke-color tap re-enables.

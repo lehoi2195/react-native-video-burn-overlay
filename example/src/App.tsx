@@ -18,7 +18,7 @@ import {
 import { launchImageLibrary } from 'react-native-image-picker';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import ViewShot, { type ViewShotRef } from 'react-native-view-shot';
-import { burnOverlay } from 'rn-video-overlay';
+import { burnOverlay, type OverlayCue } from 'rn-video-overlay';
 import CameraRecorder, {
   FRAME_ASPECT_RATIO as RECORDER_FRAME_ASPECT_RATIO,
 } from './components/CameraRecorder';
@@ -179,25 +179,32 @@ export default function App(): ReactElement {
   }, []);
 
   // Extracted burn logic so handleRecorded can trigger it without waiting on stale sourcePath state.
+  // cuesOverride carries the recorder's pre-built per-second location-stamp cues, bypassing the
+  // mode-driven single-cue path used for picked video/image.
   const runBurn = useCallback(
-    async (path: string, cropAspectRatio?: number): Promise<void> => {
+    async (
+      path: string,
+      cropAspectRatio?: number,
+      cuesOverride?: OverlayCue[]
+    ): Promise<void> => {
       setErrorMessage('');
       setStatus('burning');
 
       try {
-        if (mode === 'image' && !pickedImagePath) {
+        if (mode === 'image' && !pickedImagePath && !cuesOverride) {
           throw new Error('Pick a photo first.');
         }
 
-        const cue =
-          mode === 'text'
-            ? buildTextCue(overlayText)
-            : await buildImageCue(pickedImageViewShotRef);
+        const cues =
+          cuesOverride ??
+          (mode === 'text'
+            ? [buildTextCue(overlayText)]
+            : [await buildImageCue(pickedImageViewShotRef)]);
 
         const resultPath = await burnOverlay({
           inputPath: path,
           outputPath: outputPathFor(path),
-          cues: [cue],
+          cues,
           cropAspectRatio,
           style: {
             textColor: style.textColor,
@@ -223,7 +230,7 @@ export default function App(): ReactElement {
   );
 
   const handleRecorded = useCallback(
-    (path: string, resolution: Size): void => {
+    (path: string, resolution: Size, cues: OverlayCue[]): void => {
       setCameraVisible(false);
       const resolvedPath = stripFileScheme(path);
       setSourcePath(resolvedPath);
@@ -237,7 +244,7 @@ export default function App(): ReactElement {
         Math.round(resolution.height * RECORDER_FRAME_ASPECT_RATIO)
       );
       // Auto-burn right away; record flow shouldn't need a manual tap, runBurn reports its own failures.
-      runBurn(resolvedPath, RECORDER_FRAME_ASPECT_RATIO).catch(() => {
+      runBurn(resolvedPath, RECORDER_FRAME_ASPECT_RATIO, cues).catch(() => {
         // runBurn already reports failures via setErrorMessage/setStatus.
       });
     },
@@ -474,9 +481,6 @@ export default function App(): ReactElement {
         onRecorded={handleRecorded}
         style={style}
         onStyleChange={setStyle}
-        previewLines={previewLines}
-        previewCustomContent={previewCustomContent}
-        previewCustomContentSize={customContentSize}
       />
 
       {/* Off-screen; capture() reads current layout live, so size changes apply automatically. */}

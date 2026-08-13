@@ -1,7 +1,8 @@
-import type { ReactElement } from 'react';
+import { useEffect, type ReactElement } from 'react';
 import {
   Modal,
   ScrollView,
+  StatusBar,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -59,6 +60,8 @@ interface StyleSettingsPanelProps {
   imageOverlayHeight: number;
   onImageOverlayWidthChange: (next: number) => void;
   onImageOverlayHeightChange: (next: number) => void;
+  /** Bar style to restore on close — whatever the screen underneath expects. */
+  restoreBarStyle?: 'light-content' | 'dark-content';
 }
 
 export default function StyleSettingsPanel({
@@ -71,10 +74,18 @@ export default function StyleSettingsPanel({
   imageOverlayHeight,
   onImageOverlayWidthChange,
   onImageOverlayHeightChange,
+  restoreBarStyle = 'dark-content',
 }: StyleSettingsPanelProps): ReactElement {
   const insets = useSafeAreaInsets();
   const patch = (partial: Partial<ResolvedOverlayStyle>): void =>
     onChange({ ...style, ...partial });
+
+  // White full-screen sheet needs dark status bar icons, whatever the screen underneath used.
+  useEffect(() => {
+    if (!visible) return;
+    StatusBar.setBarStyle('dark-content');
+    return () => StatusBar.setBarStyle(restoreBarStyle);
+  }, [visible, restoreBarStyle]);
 
   const isCustomPosition = typeof style.position === 'object';
   const coordinate: OverlayPositionCoordinate = isCustomPosition
@@ -87,10 +98,13 @@ export default function StyleSettingsPanel({
       visible={visible}
       animationType="slide"
       transparent
+      // Pinned regardless of the global StatusBar.translucent flag CameraRecorder may have set.
+      statusBarTranslucent={false}
       onRequestClose={onClose}
     >
       <View style={styles.backdrop}>
         <View style={styles.sheet}>
+          {/* Modal already renders below the status bar by default — no extra inset needed. */}
           <View style={styles.header}>
             <Text style={styles.title}>Overlay Settings</Text>
             <TouchableOpacity onPress={onClose}>
@@ -579,15 +593,13 @@ export default function StyleSettingsPanel({
 }
 
 const styles = StyleSheet.create({
+  // Solid white, not a dim overlay: sheet is full-height now, no backdrop should ever show.
   backdrop: {
     flex: 1,
-    justifyContent: 'flex-end',
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    backgroundColor: '#FFFFFF',
   },
   sheet: {
-    maxHeight: '75%',
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
+    flex: 1,
     backgroundColor: '#FFFFFF',
   },
   header: {
@@ -609,9 +621,11 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   content: {
-    padding: 16,
+    paddingHorizontal: 16,
+    paddingTop: 4,
     paddingBottom: 32,
   },
+  // marginTop spaces sections apart; content's own paddingTop is small since this covers it too.
   sectionLabel: {
     color: '#6C6C70',
     fontSize: 13,

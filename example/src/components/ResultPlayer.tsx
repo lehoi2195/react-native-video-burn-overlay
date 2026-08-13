@@ -14,9 +14,8 @@ import {
   Text,
   TouchableOpacity,
   View,
-  type Permission,
 } from 'react-native';
-import Share from 'react-native-share';
+import FileViewer from 'react-native-file-viewer';
 import { CameraRoll } from '@react-native-camera-roll/camera-roll';
 import { useVideoThumbnail } from '../utils/useVideoThumbnail';
 
@@ -51,30 +50,20 @@ export default function ResultPlayer({
     };
   }, []);
 
-  // Android requires an explicit runtime grant; iOS prompts automatically via PHPhotoLibrary, no check needed.
+  // API 29+ needs no storage permission; WRITE_EXTERNAL_STORAGE is manifest-capped at API 28.
   const ensureAndroidGalleryPermission =
     useCallback(async (): Promise<boolean> => {
-      if (Platform.OS !== 'android') {
+      if (Platform.OS !== 'android' || Platform.Version >= 29) {
         return true;
       }
 
-      const permissions: Permission[] =
-        Platform.Version >= 33
-          ? [PermissionsAndroid.PERMISSIONS.READ_MEDIA_VIDEO]
-          : [PermissionsAndroid.PERMISSIONS.WRITE_EXTERNAL_STORAGE];
-
-      const alreadyGranted = await Promise.all(
-        permissions.map((permission) => PermissionsAndroid.check(permission))
-      );
-      if (alreadyGranted.every(Boolean)) {
+      const permission = PermissionsAndroid.PERMISSIONS.WRITE_EXTERNAL_STORAGE;
+      if (await PermissionsAndroid.check(permission)) {
         return true;
       }
 
-      const results = await PermissionsAndroid.requestMultiple(permissions);
-      return permissions.every(
-        (permission) =>
-          results[permission] === PermissionsAndroid.RESULTS.GRANTED
-      );
+      const result = await PermissionsAndroid.request(permission);
+      return result === PermissionsAndroid.RESULTS.GRANTED;
     }, []);
 
   const saveToCameraRoll = useCallback(async (): Promise<void> => {
@@ -110,10 +99,11 @@ export default function ResultPlayer({
 
   const handleOpenPress = useCallback((): void => {
     setOpenError('');
-    Share.open({ url: `file://${outputPath}`, type: 'video/mp4' }).catch(
+    // ACTION_VIEW, not a share sheet — players register for view, not send.
+    FileViewer.open(outputPath, { showOpenWithDialog: true }).catch(
       (error: unknown) => {
         const message = error instanceof Error ? error.message : String(error);
-        // The share sheet rejects on user dismiss too — only surface real failures.
+        // Rejects on user dismiss too — only surface real failures.
         if (!/cancel|dismiss/i.test(message)) {
           setOpenError(message);
         }

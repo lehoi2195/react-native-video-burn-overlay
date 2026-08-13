@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented here.
 
+## [0.0.3] - 2026-08-13
+
+### Changed
+
+- README: added example-app screenshots, moved the "Example app" section right after "Features", and restructured several long prose paragraphs (`cropAspectRatio`, `fontSize`, `fontWeight`, example-app description) into bullet lists.
+
 ## [0.0.2] - 2026-08-12
 
 ### Fixed

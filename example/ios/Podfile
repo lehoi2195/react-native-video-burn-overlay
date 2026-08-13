@@ -24,6 +24,7 @@ usage_description_post_install = lambda do |installer|
     # PHPhotoLibrary's addOnly authorization path still probes this general key's mere presence; without
     # it the app hard-crashes even though we never read the library, only write via saveAsset.
     'NSPhotoLibraryUsageDescription' => 'This app needs access to save the burned video to your photo library.',
+    'NSLocationWhenInUseUsageDescription' => 'This app needs your location to stamp it onto the recorded video.',
   }.each do |key, value|
     # Delete first so Add always succeeds, since RNTA's template may already define the key.
     system('/usr/libexec/PlistBuddy', '-c', "Delete :#{key}", info_plist_path, err: File::NULL)

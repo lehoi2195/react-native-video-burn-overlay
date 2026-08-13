@@ -7388,6 +7388,22 @@ __metadata:
   languageName: node
   linkType: hard
 
+"react-native-file-viewer@npm:^2.1.5":
+  version: 2.1.5
+  resolution: "react-native-file-viewer@npm:2.1.5"
+  peerDependencies:
+    react-native: ">=0.47"
+  checksum: 10c0/92bb7245c4c6dd82253d4eb2cbcca5cb4a1a0bcbd5a29d2d7171b2b0290dc6690b9df759b590fd7b5f1f2e64b5bbf35db6165aa4d5aaab8e8ff2f75b4a35b448
+  languageName: node
+  linkType: hard
+
+"react-native-geolocation-service@npm:^5.3.1":
+  version: 5.3.1
+  resolution: "react-native-geolocation-service@npm:5.3.1"
+  checksum: 10c0/54cbd8b36dcfcbc3d7a6303766d07c944e634cb40ff1f353c3b965f07bfe2d39a3514e05a48e5008d5d2529dde3ef0e6f8bc8ed1f729988fe3497eba29635c90
+  languageName: node
+  linkType: hard
+
 "react-native-image-picker@npm:^8.2.1":
   version: 8.2.1
   resolution: "react-native-image-picker@npm:8.2.1"
@@ -7436,13 +7452,6 @@ __metadata:
     react: "*"
     react-native: "*"
   checksum: 10c0/b04491f2dd97faf4a0afcb198ba803239676580a9523b23614346236149d0419abb8d0422574f4ce1782d606be6e5741b8e6841d807c48f69247a497a7a511aa
-  languageName: node
-  linkType: hard
-
-"react-native-share@npm:^12.3.1":
-  version: 12.3.1
-  resolution: "react-native-share@npm:12.3.1"
-  checksum: 10c0/4ee8a64e5a992ecf16bcf59a4d1384b3310d590d5fb0e7b07f60073635cc9de8fd3adf31bcbd93500252690bdf59a45ca6d01f3a834b32842768e1a02e5e5524
   languageName: node
   linkType: hard
 
@@ -7505,12 +7514,13 @@ __metadata:
     react-native: "npm:0.85.0"
     react-native-builder-bob: "npm:^0.43.0"
     react-native-create-thumbnail: "npm:^2.2.0"
+    react-native-file-viewer: "npm:^2.1.5"
+    react-native-geolocation-service: "npm:^5.3.1"
     react-native-image-picker: "npm:^8.2.1"
     react-native-monorepo-config: "npm:^0.4.0"
     react-native-nitro-image: "npm:^0.15.1"
     react-native-nitro-modules: "npm:^0.36.5"
     react-native-safe-area-context: "npm:5.8.1"
-    react-native-share: "npm:^12.3.1"
     react-native-test-app: "npm:^5.4.8"
     react-native-view-shot: "npm:^5.1.1"
     react-native-vision-camera: "npm:5.2.2"
