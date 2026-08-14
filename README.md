@@ -1,10 +1,10 @@
 <div align="center">
 
-# 🎬 rn-video-overlay
+# 🎬 react-native-video-burn-overlay
 
 **Burn a text or image overlay permanently into a recorded video's pixels — native APIs only, no FFmpeg.**
 
-[![npm version](https://img.shields.io/npm/v/rn-video-overlay.svg?style=flat-square&label=npm)](https://www.npmjs.com/package/rn-video-overlay) [![License](https://img.shields.io/badge/license-MIT-orange.svg?style=flat-square)](https://opensource.org/licenses/MIT) [![New Architecture](https://img.shields.io/badge/New%20Architecture-Only-8A2BE2.svg?style=flat-square)](https://reactnative.dev/architecture/landing-page)
+[![npm version](https://img.shields.io/npm/v/react-native-video-burn-overlay.svg?style=flat-square&label=npm)](https://www.npmjs.com/package/react-native-video-burn-overlay) [![License](https://img.shields.io/badge/license-MIT-orange.svg?style=flat-square)](https://opensource.org/licenses/MIT) [![New Architecture](https://img.shields.io/badge/New%20Architecture-Only-8A2BE2.svg?style=flat-square)](https://reactnative.dev/architecture/landing-page)
 
 </div>
 
@@ -22,7 +22,7 @@
 ## Example app
 
 ```sh
-git clone https://github.com/lehoi2195/rn-video-overlay.git && cd rn-video-overlay && yarn
+git clone https://github.com/lehoi2195/react-native-video-burn-overlay.git && cd react-native-video-burn-overlay && yarn
 yarn example ios   # or: yarn example android
 ```
 
@@ -59,7 +59,7 @@ This is purely an example-app dependency conflict — `burnOverlay` itself has n
 ## Install
 
 ```sh
-yarn add rn-video-overlay
+yarn add react-native-video-burn-overlay
 cd ios && pod install
 ```
 
@@ -68,7 +68,7 @@ Requires the **New Architecture** (TurboModule). iOS 15.1+, Android minSdk 24+.
 ## Usage
 
 ```ts
-import { burnOverlay } from 'rn-video-overlay';
+import { burnOverlay } from 'react-native-video-burn-overlay';
 
 await burnOverlay({
   inputPath: '/path/to/video.mp4', // source — never modified or deleted

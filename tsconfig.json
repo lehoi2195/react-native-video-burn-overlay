@@ -2,7 +2,7 @@
   "compilerOptions": {
     "rootDir": ".",
     "paths": {
-      "rn-video-overlay": ["./src/index"]
+      "react-native-video-burn-overlay": ["./src/index"]
     },
     "allowUnreachableCode": false,
     "allowUnusedLabels": false,

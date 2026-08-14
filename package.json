@@ -1,6 +1,6 @@
 {
-  "name": "rn-video-overlay",
-  "version": "0.0.4",
+  "name": "react-native-video-burn-overlay",
+  "version": "0.0.5",
   "description": "Burn text or custom image overlays permanently into recorded video pixels using native platform APIs only (AVFoundation on iOS, MediaCodec + OpenGL ES on Android).",
   "main": "./lib/module/index.js",
   "types": "./lib/typescript/src/index.d.ts",
@@ -65,14 +65,14 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/lehoi2195/rn-video-overlay.git"
+    "url": "git+https://github.com/lehoi2195/react-native-video-burn-overlay.git"
   },
   "author": "lehoi2195 <lehoi2195@gmail.com> (https://github.com/lehoi2195)",
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/lehoi2195/rn-video-overlay/issues"
+    "url": "https://github.com/lehoi2195/react-native-video-burn-overlay/issues"
   },
-  "homepage": "https://github.com/lehoi2195/rn-video-overlay#readme",
+  "homepage": "https://github.com/lehoi2195/react-native-video-burn-overlay#readme",
   "publishConfig": {
     "registry": "https://registry.npmjs.org/"
   },

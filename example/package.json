@@ -21,9 +21,9 @@
     "react-native-nitro-image": "^0.15.1",
     "react-native-nitro-modules": "^0.36.5",
     "react-native-safe-area-context": "5.8.1",
+    "react-native-video-burn-overlay": "workspace:*",
     "react-native-view-shot": "^5.1.1",
-    "react-native-vision-camera": "5.2.2",
-    "rn-video-overlay": "workspace:*"
+    "react-native-vision-camera": "5.2.2"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",

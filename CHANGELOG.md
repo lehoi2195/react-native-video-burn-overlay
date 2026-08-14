@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented here.
 
+## [0.0.5] - 2026-08-14
+
+### Changed
+
+- Renamed the package from `rn-video-overlay` to `react-native-video-burn-overlay` — shorter/abbreviated `rn-` prefixes rank worse in npm search than the full `react-native-` prefix. Repo, README, and podspec URLs updated to match; git history and tags carried over unchanged.
+
 ## [0.0.4] - 2026-08-13
 
 ### Changed
@@ -18,7 +24,7 @@ All notable changes to this project are documented here.
 
 ### Fixed
 
-- `repository`, `homepage`, and `bugs` URLs in `package.json`, `README.md`, and `VideoOverlay.podspec` now point to the package's actual repo (`lehoi2195/rn-video-overlay`) instead of a stale name from before the rename.
+- `repository`, `homepage`, and `bugs` URLs in `package.json`, `README.md`, and `VideoOverlay.podspec` now point to the package's actual repo (`lehoi2195/react-native-video-burn-overlay`) instead of a stale name from before the rename.
 
 ## [0.0.1] - 2026-08-12
 
