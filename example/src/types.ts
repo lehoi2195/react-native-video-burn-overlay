@@ -1,4 +1,9 @@
-import type { OverlayPosition } from 'rn-video-overlay';
+import type {
+  ImageOverlayLayer,
+  OverlayLayer,
+  OverlayPosition,
+  TextOverlayLayer,
+} from 'react-native-video-burn-overlay';
 
 /** Lifecycle of the `burnOverlay` call driving the status UI in `App`. */
 export type BurnStatus = 'idle' | 'burning' | 'done' | 'error';
@@ -36,3 +41,13 @@ export interface ResolvedOverlayStyle {
   /** Applies to both text and image cues. 0–1, default 1 (fully visible). */
   opacity: number;
 }
+
+/** Mirrors `OverlayLayer['type']` — a plain union since burnLayers exports no shared name for it. */
+export type OverlayLayerType = 'image' | 'text';
+
+/** An `OverlayLayer` plus a stable local id, for list keys and reordering in the editor. */
+export type EditableLayer = OverlayLayer & { id: string };
+
+/** Loose patch of any optional field from either layer type. */
+export type LayerFieldPatch = Partial<Omit<ImageOverlayLayer, 'type'>> &
+  Partial<Omit<TextOverlayLayer, 'type'>>;

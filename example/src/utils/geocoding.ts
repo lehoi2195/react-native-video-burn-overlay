@@ -27,7 +27,7 @@ export async function reverseGeocode(
 ): Promise<AddressLines | null> {
   const url = `${NOMINATIM_URL}?format=jsonv2&addressdetails=1&accept-language=vi&lat=${latitude}&lon=${longitude}`;
   const response = await fetch(url, {
-    headers: { 'User-Agent': 'rn-video-overlay-example/1.0' },
+    headers: { 'User-Agent': 'react-native-video-burn-overlay-example/1.0' },
   });
   if (!response.ok) {
     return null;

@@ -31,7 +31,7 @@ import {
   type Size as VideoResolution,
   type TorchMode,
 } from 'react-native-vision-camera';
-import type { OverlayCue } from 'rn-video-overlay';
+import type { OverlayCue } from 'react-native-video-burn-overlay';
 import { clamp, TEXT_COLORS } from '../constants/styleOptions';
 import type { ResolvedOverlayStyle } from '../types';
 import { buildLocationStampCues } from '../utils/cueBuilders';

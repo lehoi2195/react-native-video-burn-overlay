@@ -2,6 +2,26 @@
 
 All notable changes to this project are documented here.
 
+## [0.0.6] - 2026-08-14
+
+### Added
+
+- `burnLayers(options)` — burns a stack of layers into a video at once (not a timeline), each with its own position, size, opacity, rotation, and time window. Mixes text and image layers freely.
+- Tiled watermarks: any layer can repeat across the whole frame via `tile` (angle, spacing, anchor, scale, stagger for a brick pattern).
+- Android native pipeline: `VideoLayerBurner`, `LayerRenderer`, `VideoTranscodeEngine` (decode/encode/mux engine shared with `burnOverlay`), `LayerTextBitmapFactory`, `OverlayLayerConfig`/parser, `GlUtil`.
+- iOS native pipeline: `VideoLayerBurner.h`/`.m`.
+- Example app: `burnLayers` demo screen with a live layer-stack editor, presets (logo + caption, stock watermark), and tile controls.
+
+### Fixed
+
+- Image layers silently missing from `burnLayers` output in debug builds — bundled `require()` assets resolve to a Metro `http://` dev-server URL, which native `decodeFile` can't read. Such sources are now downloaded to a local cache file before burning.
+
+## [0.0.5] - 2026-08-14
+
+### Changed
+
+- Renamed the package from `rn-video-overlay` to `react-native-video-burn-overlay` — shorter/abbreviated `rn-` prefixes rank worse in npm search than the full `react-native-` prefix. Repo, README, and podspec URLs updated to match; git history and tags carried over unchanged.
+
 ## [0.0.4] - 2026-08-13
 
 ### Changed
@@ -18,7 +38,7 @@ All notable changes to this project are documented here.
 
 ### Fixed
 
-- `repository`, `homepage`, and `bugs` URLs in `package.json`, `README.md`, and `VideoOverlay.podspec` now point to the package's actual repo (`lehoi2195/rn-video-overlay`) instead of a stale name from before the rename.
+- `repository`, `homepage`, and `bugs` URLs in `package.json`, `README.md`, and `VideoOverlay.podspec` now point to the package's actual repo (`lehoi2195/react-native-video-burn-overlay`) instead of a stale name from before the rename.
 
 ## [0.0.1] - 2026-08-12
 

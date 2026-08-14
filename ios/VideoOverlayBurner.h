@@ -30,6 +30,8 @@ typedef NS_ERROR_ENUM(VideoOverlayErrorDomain, VideoOverlayErrorCode) {
   VideoOverlayErrorExportFailed = 7,
   /// Export was cancelled.
   VideoOverlayErrorExportCancelled = 8,
+  /// `layersJson` is structurally invalid (see VideoLayerBurner.h).
+  VideoOverlayErrorInvalidLayers = 9,
 };
 
 /// Returns burned output path or error; invoked on an internal background queue, not main.

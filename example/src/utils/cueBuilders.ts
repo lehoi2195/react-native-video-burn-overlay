@@ -1,5 +1,5 @@
 import type { RefObject } from 'react';
-import type { OverlayCue } from 'rn-video-overlay';
+import type { OverlayCue } from 'react-native-video-burn-overlay';
 import type { ViewShotRef } from 'react-native-view-shot';
 import type { AddressLines } from './geocoding';
 import { formatCoordinateLine, formatTimeLine } from './useLocationStamp';

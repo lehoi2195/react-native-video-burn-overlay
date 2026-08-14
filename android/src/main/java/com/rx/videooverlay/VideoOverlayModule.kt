@@ -32,6 +32,24 @@ class VideoOverlayModule(
         }
     }
 
+    override fun burnLayers(
+        videoPath: String,
+        outputPath: String,
+        layersJson: String,
+        optionsJson: String,
+        promise: Promise,
+    ) {
+        executor.execute {
+            try {
+                promise.resolve(VideoLayerBurner(videoPath, outputPath, layersJson, optionsJson).burn())
+            } catch (e: VideoOverlayException) {
+                promise.reject(e.code, e.message, e)
+            } catch (t: Throwable) {
+                promise.reject(ErrorCode.BURN_FAILED, t.message ?: t.toString(), t)
+            }
+        }
+    }
+
     override fun invalidate() {
         executor.shutdown()
         super.invalidate()

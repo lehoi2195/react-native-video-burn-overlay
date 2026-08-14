@@ -1,25 +1,21 @@
 import NativeVideoOverlay from './NativeVideoOverlay';
+import type { OverlayFontWeight, OverlayPosition } from './types';
 
-/** One of the 9 named preset positions (3x3 grid) the overlay can anchor to. */
-export type OverlayPositionPreset =
-  | 'topLeft'
-  | 'topCenter'
-  | 'topRight'
-  | 'centerLeft'
-  | 'center'
-  | 'centerRight'
-  | 'bottomLeft'
-  | 'bottomCenter'
-  | 'bottomRight';
+export type {
+  OverlayFontWeight,
+  OverlayPosition,
+  OverlayPositionCoordinate,
+  OverlayPositionPreset,
+} from './types';
 
-/** Exact 0-1 coordinate placement, bypassing marginRatio; (0,0) top-left, (1,1) bottom-right. */
-export interface OverlayPositionCoordinate {
-  x: number;
-  y: number;
-}
-
-/** Which corner/edge/center the overlay anchors to, or an exact `{x,y}` coordinate. */
-export type OverlayPosition = OverlayPositionPreset | OverlayPositionCoordinate;
+export {
+  burnLayers,
+  type BurnLayersOptions,
+  type ImageOverlayLayer,
+  type OverlayLayer,
+  type TextOverlayLayer,
+  type TileConfig,
+} from './burnLayers';
 
 /** A time-ranged overlay: use `lines` or `imagePath`; imagePath takes priority if both set. */
 export interface OverlayCue {
@@ -39,23 +35,12 @@ export interface OverlayStyle {
   textColor?: string;
   /** Outline color behind fill for legibility; default `'#000000'`, set equal to textColor to hide. */
   strokeColor?: string;
-  /** Outline thickness in px; 0 disables it entirely. Default is an auto size relative to the font. */
+  /** Outline thickness in px; 0 disables it. Defaults to an auto font-relative size. */
   strokeWidth?: number;
   /** Platform font name (iOS PostScript, Android family); unknown names silently fall back to default. */
   fontFamily?: string;
   /** Matches CSS fontWeight scale; ignored on iOS when fontFamily is set, but Android still applies. */
-  fontWeight?:
-    | 'normal'
-    | 'bold'
-    | '100'
-    | '200'
-    | '300'
-    | '400'
-    | '500'
-    | '600'
-    | '700'
-    | '800'
-    | '900';
+  fontWeight?: OverlayFontWeight;
   /** Multiplier on auto-computed font size (from video's shorter edge); ignored if fontSize is set. */
   fontScale?: number;
   /** Absolute pixel size, bypassing auto-computed sizing; fontScale is not also applied on top. */
@@ -78,10 +63,10 @@ export interface BurnOverlayOptions {
   /** One style for the whole call. */
   style?: OverlayStyle;
   /**
-   * Center-crops the output to this width/height ratio (e.g. `3/4` for a portrait 3:4 frame).
-   * Only ever trims — the source is never letterboxed or scaled up. Overlay anchoring and the
-   * auto font size are computed against the cropped frame, so the result matches a preview
-   * composed at the same ratio. Omit to keep the source's own framing.
+   * Center-crops the output to this width/height ratio, e.g. `3/4` for portrait.
+   * Only ever trims; the source is never letterboxed or scaled up.
+   * Anchoring and auto font size compute against the cropped frame.
+   * Omit to keep the source's own framing.
    */
   cropAspectRatio?: number;
 }

@@ -25,6 +25,7 @@
 #endif
 
 #import "VideoOverlayBurner.h"
+#import "VideoLayerBurner.h"
 
 /// Class name determines JS module name via RCT_EXPORT_MODULE(); must be VideoOverlay to match spec.
 @interface VideoOverlay : NSObject <NativeVideoOverlaySpec>
@@ -60,6 +61,29 @@ RCT_EXPORT_MODULE()
                                       }
                                       resolve(resultPath);
                                     }];
+}
+
+- (void)burnLayers:(NSString *)videoPath
+        outputPath:(NSString *)outputPath
+        layersJson:(NSString *)layersJson
+       optionsJson:(NSString *)optionsJson
+           resolve:(RCTPromiseResolveBlock)resolve
+            reject:(RCTPromiseRejectBlock)reject
+{
+  // VideoLayerBurner switches to a background queue itself, mirroring burnOverlay.
+  [VideoLayerBurner burnLayersWithVideoPath:videoPath
+                                  outputPath:outputPath
+                                  layersJson:layersJson
+                                 optionsJson:optionsJson
+                                  completion:^(NSString *_Nullable resultPath, NSError *_Nullable error) {
+                                    if (error != nil) {
+                                      NSString *code =
+                                          [NSString stringWithFormat:@"E_VIDEO_OVERLAY_%ld", (long)error.code];
+                                      reject(code, error.localizedDescription, error);
+                                      return;
+                                    }
+                                    resolve(resultPath);
+                                  }];
 }
 
 - (std::shared_ptr<facebook::react::TurboModule>)getTurboModule:
