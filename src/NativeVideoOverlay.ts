@@ -16,6 +16,21 @@ export interface Spec extends TurboModule {
     cuesJson: string,
     styleJson: string
   ): Promise<string>;
+
+  /**
+   * Layer-stack burn: draws every layer on the same frame, all at once.
+   * @param videoPath Filesystem path to the source video (no `file://` prefix).
+   * @param outputPath Filesystem path to write the burned result to.
+   * @param layersJson JSON-stringified `OverlayLayer[]`, string for the same codegen reason as cuesJson.
+   * @param optionsJson JSON-stringified `{ cropAspectRatio?: number }` (may be `"{}"`).
+   * @returns The output path of the burned video.
+   */
+  burnLayers(
+    videoPath: string,
+    outputPath: string,
+    layersJson: string,
+    optionsJson: string
+  ): Promise<string>;
 }
 
 export default TurboModuleRegistry.getEnforcing<Spec>('VideoOverlay');

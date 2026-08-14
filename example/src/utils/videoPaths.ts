@@ -1,6 +1,7 @@
 import {
   CachesDirectoryPath,
   copyFile,
+  downloadFile,
   unlink,
 } from '@dr.pogodin/react-native-fs';
 
@@ -87,6 +88,42 @@ export async function copyPickedAssetToCache(
   }
 
   return destination;
+}
+
+// Caches per-URL downloads so repeat burns don't refetch the same bundled dev-server asset.
+const remoteAssetCache = new Map<string, Promise<string>>();
+
+// Debug bundled assets resolve to an http:// dev-server URL, unreadable by native decodeFile.
+export async function resolveNativeReadableSource(
+  source: string
+): Promise<string> {
+  if (!source.startsWith('http://') && !source.startsWith('https://')) {
+    return source;
+  }
+  const cached = remoteAssetCache.get(source);
+  if (cached) {
+    return cached;
+  }
+  const extension = extensionOf(source) ?? 'png';
+  const destination = `${CachesDirectoryPath}/bundled_${hashCode(source)}.${extension}`;
+  const promise = downloadFile({ fromUrl: source, toFile: destination })
+    .promise.then(() => destination)
+    .catch((error: unknown) => {
+      remoteAssetCache.delete(source);
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Could not download bundled layer asset: ${message}`);
+    });
+  remoteAssetCache.set(source, promise);
+  return promise;
+}
+
+/** Cheap deterministic string hash, for a stable per-URL cache filename. */
+function hashCode(value: string): string {
+  let hash = 0;
+  for (let i = 0; i < value.length; i++) {
+    hash = (hash * 31 + value.charCodeAt(i)) | 0;
+  }
+  return Math.abs(hash).toString(36);
 }
 
 /** Best-effort delete of a previously copied cache file; failures are silently ignored. */

@@ -18,7 +18,7 @@ import {
 import { launchImageLibrary } from 'react-native-image-picker';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import ViewShot, { type ViewShotRef } from 'react-native-view-shot';
-import { burnOverlay, type OverlayCue } from 'rn-video-overlay';
+import { burnOverlay, type OverlayCue } from 'react-native-video-burn-overlay';
 import CameraRecorder, {
   FRAME_ASPECT_RATIO as RECORDER_FRAME_ASPECT_RATIO,
 } from './components/CameraRecorder';
@@ -26,6 +26,7 @@ import OverlayPreview, { type Size } from './components/OverlayPreview';
 import PickedImageOverlay from './components/PickedImageOverlay';
 import ResultPlayer from './components/ResultPlayer';
 import StyleSettingsPanel from './components/StyleSettingsPanel';
+import LayerBurnScreen from './screens/LayerBurnScreen';
 import {
   DEFAULT_IMAGE_OVERLAY_HEIGHT,
   DEFAULT_IMAGE_OVERLAY_WIDTH,
@@ -54,6 +55,8 @@ const viewShotOptions = { format: 'png' as const };
 
 export default function App(): ReactElement {
   const insets = useSafeAreaInsets();
+  // Which API this session is demoing; the two flows share no state on purpose.
+  const [apiMode, setApiMode] = useState<'overlay' | 'layers'>('overlay');
   const [status, setStatus] = useState<BurnStatus>('idle');
   const [sourcePath, setSourcePath] = useState('');
   const [outputPath, setOutputPath] = useState('');
@@ -85,8 +88,8 @@ export default function App(): ReactElement {
 
   // True while a picked asset is being copied into app cache storage (see pickVideo/pickImage).
   const [isProcessingPick, setIsProcessingPick] = useState(false);
-  // Tracks the most recent cache copy per slot so a repeat pick can delete the stale one instead
-  // of leaking files across the session; not populated for recorded video, which isn't our copy.
+  // Last cache copy per slot, so a repeat pick deletes the stale one.
+  // Never set for recorded video, since that file is not our copy.
   const previousPickedVideoPathRef = useRef<string | null>(null);
   const previousPickedImagePathRef = useRef<string | null>(null);
 
@@ -126,11 +129,11 @@ export default function App(): ReactElement {
     setIsProcessingPick(true);
     setErrorMessage('');
     try {
-      // Never trust the picker's raw uri/originalPath directly: on Android's modern Photo Picker
-      // (the default on Android 13+) it can be a synthetic FUSE-redirect path that looks like a
-      // real file but only reliably supports reading the exact picked item — writing the sibling
-      // `_burned.mp4` fails with EFAULT, and reads can silently fail too (the likely cause of a
-      // black preview). Copying it into app-owned cache storage first sidesteps all of that.
+      // Never trust the picker's raw uri: Android 13+ Photo Picker returns
+      // a synthetic FUSE path that only reads the exact picked item.
+      // Writing the sibling `_burned.mp4` fails with EFAULT there.
+      // Reads can silently fail too, likely causing the black preview.
+      // Copying into app-owned cache storage first sidesteps all of that.
       const copiedPath = await copyPickedAssetToCache(asset, 'mp4');
       if (previousPickedVideoPathRef.current) {
         deleteCachedAsset(previousPickedVideoPathRef.current);
@@ -163,7 +166,7 @@ export default function App(): ReactElement {
     setIsProcessingPick(true);
     setErrorMessage('');
     try {
-      // Same defensive copy as pickVideo — see its comment for why the raw picker path isn't safe.
+      // Same defensive copy as pickVideo; see there why raw picker paths are unsafe.
       const copiedPath = await copyPickedAssetToCache(asset, 'jpg');
       if (previousPickedImagePathRef.current) {
         deleteCachedAsset(previousPickedImagePathRef.current);
@@ -291,6 +294,11 @@ export default function App(): ReactElement {
     videoSource !== 'picked' ||
     isMissingPickedImage;
 
+  // Every hook above already ran, so this branch is safe to take here.
+  if (apiMode === 'layers') {
+    return <LayerBurnScreen onBack={() => setApiMode('overlay')} />;
+  }
+
   return (
     <View style={styles.root}>
       <ScrollView
@@ -303,6 +311,15 @@ export default function App(): ReactElement {
         ]}
       >
         <Text style={styles.title}>react-native-video-overlay</Text>
+
+        <TouchableOpacity
+          style={styles.apiSwitchButton}
+          onPress={() => setApiMode('layers')}
+        >
+          <Text style={styles.apiSwitchText}>
+            Try burnLayers — multi-layer + tiled watermark ›
+          </Text>
+        </TouchableOpacity>
 
         <OverlayPreview
           aspectRatio={aspectRatio}
@@ -527,6 +544,17 @@ const styles = StyleSheet.create({
   modeRow: {
     flexDirection: 'row',
     gap: 8,
+  },
+  apiSwitchButton: {
+    paddingVertical: 12,
+    borderRadius: 10,
+    alignItems: 'center',
+    backgroundColor: '#34C759',
+  },
+  apiSwitchText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '700',
   },
   modeButton: {
     flex: 1,

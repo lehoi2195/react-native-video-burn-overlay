@@ -18,10 +18,14 @@ internal class FrameRenderer(
     private val overlay: OverlayBitmapRenderer,
     /** Alpha multiplier for both text and image overlay draws, via uOpacity in FRAGMENT_SHADER_2D. */
     private val opacity: Float,
+    private val cues: List<OverlayCue>,
     /** Video quad scale in output space; >1 overflows the viewport, which centre-crops it. */
     videoScaleX: Float = 1f,
     videoScaleY: Float = 1f,
-) {
+) : OverlayFrameDrawer {
+
+    /** Active-cue lookup now lives here, not in the transcode loop, to satisfy OverlayFrameDrawer. */
+    private val timeline = CueTimeline(cues)
 
     private val videoProgram = buildProgram(VERTEX_SHADER, FRAGMENT_SHADER_OES)
     private val overlayProgram = buildProgram(VERTEX_SHADER, FRAGMENT_SHADER_2D)
@@ -163,11 +167,10 @@ internal class FrameRenderer(
         return textureId
     }
 
-    /**
-     * @param stMatrix texture coordinate transform matrix from SurfaceTexture (handles driver's flip / crop).
-     * @param cueIndex index of the currently active cue, -1 if there is none.
-     */
-    fun drawFrame(stMatrix: FloatArray, cueIndex: Int, cue: OverlayCue?, oesTextureId: Int) {
+    /** @param stMatrix texture coordinate transform matrix from SurfaceTexture (handles driver's flip / crop). */
+    override fun drawFrame(stMatrix: FloatArray, ptsUs: Long, oesTextureId: Int) {
+        val cueIndex = timeline.indexAt(ptsUs)
+        val cue = cues.getOrNull(cueIndex)
         GLES20.glViewport(0, 0, outputWidth, outputHeight)
         GLES20.glDisable(GLES20.GL_BLEND)
 
@@ -222,10 +225,7 @@ internal class FrameRenderer(
         GLES20.glDisable(GLES20.GL_BLEND)
     }
 
-    /**
-     * Loads image texture, cached by path; decode failures log a warning and skip silently.
-     * @return true if a valid texture is ready to be drawn.
-     */
+    /** Loads image texture, cached by path; returns true if ready to draw. */
     private fun ensureImageTexture(imagePath: String): Boolean {
         if (imagePath == uploadedImagePath) return imageVertices != null
         uploadedImagePath = imagePath
@@ -281,7 +281,7 @@ internal class FrameRenderer(
         GLES20.glDisableVertexAttribArray(texCoord)
     }
 
-    fun release() {
+    override fun release() {
         GLES20.glDeleteTextures(1, intArrayOf(overlayTextureId), 0)
         GLES20.glDeleteTextures(1, intArrayOf(imageTextureId), 0)
         GLES20.glDeleteProgram(videoProgram)

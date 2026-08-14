@@ -1433,6 +1433,8 @@ PODS:
     - Yoga
   - react-native-create-thumbnail (2.2.0):
     - React-Core
+  - react-native-geolocation-service (5.3.1):
+    - React
   - react-native-image-picker (8.2.1):
     - hermes-engine
     - RCTRequired
@@ -1981,29 +1983,9 @@ PODS:
     - React-Core
     - React-jsi
   - ReactTestApp-Resources (1.0.0-dev)
-  - RNShare (12.3.1):
-    - hermes-engine
-    - RCTRequired
-    - RCTTypeSafety
+  - RNFileViewer (2.1.5):
     - React-Core
-    - React-Core-prebuilt
-    - React-debug
-    - React-Fabric
-    - React-featureflags
-    - React-graphics
-    - React-ImageManager
-    - React-jsi
-    - React-NativeModulesApple
-    - React-RCTFabric
-    - React-renderercss
-    - React-rendererdebug
-    - React-utils
-    - ReactCodegen
-    - ReactCommon/turbomodule/bridging
-    - ReactCommon/turbomodule/core
-    - ReactNativeDependencies
-    - Yoga
-  - VideoOverlay (0.1.0):
+  - VideoOverlay (0.0.4):
     - hermes-engine
     - RCTRequired
     - RCTTypeSafety
@@ -2096,6 +2078,7 @@ DEPENDENCIES:
   - React-microtasksnativemodule (from `../node_modules/react-native/ReactCommon/react/nativemodule/microtasks`)
   - "react-native-cameraroll (from `../node_modules/@react-native-camera-roll/camera-roll`)"
   - react-native-create-thumbnail (from `../node_modules/react-native-create-thumbnail`)
+  - react-native-geolocation-service (from `../node_modules/react-native-geolocation-service`)
   - react-native-image-picker (from `../node_modules/react-native-image-picker`)
   - react-native-safe-area-context (from `../node_modules/react-native-safe-area-context`)
   - react-native-view-shot (from `../node_modules/react-native-view-shot`)
@@ -2137,7 +2120,7 @@ DEPENDENCIES:
   - "ReactNativeHost (from `../node_modules/@rnx-kit/react-native-host`)"
   - ReactTestApp-DevSupport (from `../node_modules/react-native-test-app`)
   - ReactTestApp-Resources (from `..`)
-  - RNShare (from `../node_modules/react-native-share`)
+  - RNFileViewer (from `../node_modules/react-native-file-viewer`)
   - VideoOverlay (from `../..`)
   - VisionCamera (from `../node_modules/react-native-vision-camera`)
   - Yoga (from `../node_modules/react-native/ReactCommon/yoga`)
@@ -2228,6 +2211,8 @@ EXTERNAL SOURCES:
     :path: "../node_modules/@react-native-camera-roll/camera-roll"
   react-native-create-thumbnail:
     :path: "../node_modules/react-native-create-thumbnail"
+  react-native-geolocation-service:
+    :path: "../node_modules/react-native-geolocation-service"
   react-native-image-picker:
     :path: "../node_modules/react-native-image-picker"
   react-native-safe-area-context:
@@ -2310,8 +2295,8 @@ EXTERNAL SOURCES:
     :path: "../node_modules/react-native-test-app"
   ReactTestApp-Resources:
     :path: ".."
-  RNShare:
-    :path: "../node_modules/react-native-share"
+  RNFileViewer:
+    :path: "../node_modules/react-native-file-viewer"
   VideoOverlay:
     :path: "../.."
   VisionCamera:
@@ -2362,6 +2347,7 @@ SPEC CHECKSUMS:
   React-microtasksnativemodule: ca1f33f7c98b76d923f550d39631eb4e05fa9aec
   react-native-cameraroll: 4d4fcff8a057235ce7a9f57d4566409207216a86
   react-native-create-thumbnail: c15cedc37f3822777d44e6035be041f7961341ea
+  react-native-geolocation-service: 32b2c2a3b91e70ce2a8d0c684801aaeb0a07e0ec
   react-native-image-picker: 23540feacc79c63c60857f318fdfa8477c26e70a
   react-native-safe-area-context: c4a6d0fbf9c77ee28dab7e4d4c369df7753f20d4
   react-native-view-shot: 2829bd78c1fef42db12553bf85833e05a1a73609
@@ -2403,11 +2389,11 @@ SPEC CHECKSUMS:
   ReactNativeHost: c49183895850a534a9d58049bf02b3c80a3ebb0c
   ReactTestApp-DevSupport: 9acbecb4634471d22a0fd6fb98153d8143506c19
   ReactTestApp-Resources: 1bd9ff10e4c24f2ad87101a32023721ae923bccf
-  RNShare: 7344a3a7d4e5df58c356ad0f79e4a3ef1325c635
-  VideoOverlay: 3a07c0b4e7b749df277bf7be964ef79796e5f0f5
+  RNFileViewer: 4b5d83358214347e4ab2d4ca8d5c1c90d869e251
+  VideoOverlay: 93a549245114343b282b6c595c109ea7004c7393
   VisionCamera: a917b12fb1a8af28f8265b20e9676d1cb37a1593
   Yoga: e83c3121d079541e69f3c5c623faaaf933fb5812
 
-PODFILE CHECKSUM: 509e0ae143b633abcf18a7ea1d8892bcb1a7b0e2
+PODFILE CHECKSUM: 39a8ea575cc6119da74235b80ea916a22cb668d4
 
 COCOAPODS: 1.16.2

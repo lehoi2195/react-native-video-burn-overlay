@@ -9,7 +9,7 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import type { OverlayPositionCoordinate } from 'rn-video-overlay';
+import type { OverlayPositionCoordinate } from 'react-native-video-burn-overlay';
 import type { OverlayMode, ResolvedOverlayStyle } from '../types';
 import {
   COORDINATE_STEP,

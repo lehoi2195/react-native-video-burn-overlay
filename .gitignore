@@ -90,3 +90,4 @@ android/generated
 # React Native Nitro Modules
 nitrogen/
 example/ios/.xcode.env
+CLAUDE.md

@@ -17,6 +17,9 @@ internal object ErrorCode {
     /** cuesJson could not be parsed, or is empty. */
     const val INVALID_CUES = "E_INVALID_CUES"
 
+    /** layersJson could not be parsed, empty, or a layer is structurally invalid. */
+    const val INVALID_LAYERS = "E_INVALID_LAYERS"
+
     /** Input file has no video track. */
     const val NO_VIDEO_TRACK = "E_NO_VIDEO_TRACK"
 

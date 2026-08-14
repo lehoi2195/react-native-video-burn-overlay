@@ -16,6 +16,8 @@
 - 🎨 Control **text color, stroke, font family, font scale, and margin**
 - 🧩 Pass **any custom React element** as an overlay — render off-screen, capture with `react-native-view-shot`
 - 🕒 Per-second cue granularity — bake in a ticking clock or a moving GPS trail
+- 🧱 **`burnLayers`** — stack many layers at once, each with its own position, size, rotation
+- 💧 **Tiled watermarks** — repeat a logo or text across the whole frame at any angle
 - 📼 Source video is **never modified or deleted**
 - 📱 Built for the **New Architecture** (TurboModule), iOS + Android
 
@@ -40,21 +42,7 @@ A full showcase app:
 
 The recording screen also frames a fixed 3:4 viewfinder and passes that same ratio as `cropAspectRatio` when it burns the clip — a working example of keeping a custom preview UI and the burned output in agreement (see the `cropAspectRatio` note below).
 
-The example app deliberately does **not** use `react-native-video` for playback — see the note below.
-
-### Why no `react-native-video` in the example app
-
-`react-native-vision-camera`'s recording path hard-requires two things that can't both be satisfied in one app:
-
-- `androidx.camera:camera-video` (currently pinned to an unreleased CameraX `1.7.0-alpha02`) requires `androidx.media3:media3-muxer` 1.9.0+, with no fallback to the legacy platform muxer.
-- `react-native-video`'s compiled `ReactExoplayerView.java` calls a `DefaultLoadControl` constructor overload that media3 1.9.0 removed outright, so it can't compile against anything newer than 1.8.x.
-
-Recording is the more central demo of this library's video-capture path, so the example app instead:
-
-- previews the picked/recorded source as a static extracted frame (via [`react-native-create-thumbnail`](https://github.com/rurea/react-native-create-thumbnail)) rather than live playback
-- hands the burned result off to the OS's own video player (via [`react-native-file-viewer`](https://github.com/vinzscam/react-native-file-viewer)'s `ACTION_VIEW`/`UIDocumentInteractionController`, not a share sheet — video players register to *view* files, not receive *shared* ones) instead of embedding a player
-
-This is purely an example-app dependency conflict — `burnOverlay` itself has no media3/CameraX dependency at all (its native pipeline uses only platform `MediaExtractor`/`MediaCodec`/`MediaMuxer`/AVFoundation APIs).
+The example app deliberately does **not** use `react-native-video` for playback — see [Known issues](#known-issues).
 
 ## Install
 
@@ -144,6 +132,72 @@ Use **one** of `lines` / `imagePath` (image wins if both are set). Images compos
 - It's an intentional escape hatch for callers who know their video's exact resolution and want pixel-precise control (e.g. matching a design mockup) — reach for `fontScale` unless you specifically need that.
 - Building your own preview UI (as the example app does)? Scale `fontSize` by `previewFrameWidth / realVideoWidth` before handing it to a `<Text>` component, or it'll look wildly larger on screen than in the actual burned output.
 
+### `burnLayers(options: BurnLayersOptions): Promise<string>`
+
+A layer stack, not a timeline: every layer draws on every frame at once, each with its own position, opacity, rotation, and time window. Use it when a corner logo and a caption must appear together — `burnOverlay` can't do that.
+
+```ts
+import { burnLayers } from 'react-native-video-burn-overlay';
+
+await burnLayers({
+  inputPath,
+  outputPath,
+  layers: [
+    { type: 'image', source: logoPath, position: 'topLeft', width: 120, opacity: 0.9 },
+    { type: 'text', text: 'ReviewDekho — Hyderabad', position: 'bottomCenter', fontSize: 28 },
+  ],
+});
+```
+
+Layers draw bottom-to-top in array order.
+
+| Field | Type | Default |
+|---|---|---|
+| `inputPath` / `outputPath` | `string` | required |
+| `layers` | `OverlayLayer[]` | required, non-empty |
+| `cropAspectRatio` | `number?` | none — same trim-only crop as `burnOverlay` |
+
+**`OverlayLayer`**
+
+| Field | Type | Default | Applies to |
+|---|---|---|---|
+| `type` | `'image' \| 'text'` | required | both |
+| `position` | `OverlayPosition` | `'bottomLeft'` | both — ignored if `tile` set |
+| `marginRatio` | `number` | `0.05` | both |
+| `opacity` | `number` | `1` | both |
+| `rotation` | `number`, ° CW | `0` | both |
+| `startSec` / `endSec` | `number` | whole video | both |
+| `tile` | `TileConfig` | none | both |
+| `source` | `string` | required | image |
+| `width` / `height` | `number` | image's own size | image |
+| `text` | `string` | required | text |
+| `fontSize` / `fontScale` | `number` | auto | text |
+| `fontColor` / `strokeColor` | `string` | `'#FFFFFF'` / `'#000000'` | text |
+| `strokeWidth` | `number` | auto | text |
+| `fontFamily` / `fontWeight` | `string` | platform default | text |
+
+Text layers use `fontColor`, not `textColor`.
+
+#### Tiled watermarks
+
+Set `tile` on any layer to repeat it across the whole frame instead of once. `position`/`marginRatio` are ignored; `tile.anchor` sets the grid's phase.
+
+```ts
+{ type: 'text', text: 'SportsPhotos', opacity: 0.35, tile: { angle: -30, spacingX: 0.3, spacingY: 0.3, stagger: true } }
+```
+
+| `TileConfig` | Type | Default | Notes |
+|---|---|---|---|
+| `angle` | `number` | `0` | ° clockwise, whole lattice |
+| `spacingX` / `spacingY` | `number` | `0.25` | fraction of frame width (both axes) |
+| `anchor` | `OverlayPosition` | `'center'` | grid origin, expands outward |
+| `scale` | `number` | `1` | per-tile size multiplier |
+| `stagger` | `boolean` | `false` | offsets alternate rows by half a step — brick pattern |
+
+Capped at 400 tiles/layer; spacing too tight to fit is widened automatically.
+
+Full contract: [`docs/burn-layers-spec.md`](docs/burn-layers-spec.md).
+
 ## Custom layouts
 
 `lines` only draws stacked plain text. For icons, colors, or richer layout, render **any custom React element** — your own component, arbitrary JSX, whatever you'd normally put on screen — off-screen inside a [`react-native-view-shot`](https://github.com/gre/react-native-view-shot) `<ViewShot>`, capture it to a PNG, and pass that as `imagePath`. The library never sees JSX, only the rasterized bitmap — so `imagePath` can carry anything a `View` can render (icons, gradients, third-party components), not just what `lines` supports.
@@ -176,8 +230,9 @@ async function buildImageCue(viewShotRef: RefObject<ViewShotRef | null>): Promis
 
 Each cue is one capture (~50–200ms) — budget accordingly for many cues. Use `imagePath` only when `lines` isn't enough. See [`example/src/components/PickedImageOverlay.tsx`](example/src/components/PickedImageOverlay.tsx) and [`example/src/utils/cueBuilders.ts`](example/src/utils/cueBuilders.ts) for a complete working version — the example app's "Image overlay" mode lets you pick any photo from your device, resizes it to a configurable box via this exact pattern, and burns the result in.
 
-## Known limitations
+## Known issues
 
+- Example app doesn't use `react-native-video` for playback: its `media3-muxer` dependency conflicts with `react-native-vision-camera`'s recording path. Example-app-only — `burnOverlay`/`burnLayers` have no media3/CameraX dependency.
 - Android portrait rotation (`KEY_ROTATION`) not exhaustively tested across devices.
 - iOS forces BT.709 SDR output (avoids HDR desaturation on iPhone 12+), not yet compared on-device.
 - No automated test suite — verified via source review + syntax-checking so far.
