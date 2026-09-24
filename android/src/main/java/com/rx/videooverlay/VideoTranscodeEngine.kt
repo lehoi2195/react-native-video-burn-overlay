@@ -2,6 +2,7 @@ package com.rx.videooverlay
 
 import android.media.MediaCodec
 import android.media.MediaCodecInfo
+import android.media.MediaCodecList
 import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.media.MediaMetadataRetriever
@@ -55,9 +56,13 @@ internal class VideoTranscodeEngine(
     }
 
     /** Runs the decode/encode/mux loop; deletes the partial output and rethrows on any failure. */
-    fun transcode(cropAspectRatio: Float?, drawerFactory: (DrawerContext) -> OverlayFrameDrawer) {
+    fun transcode(
+        cropAspectRatio: Float?,
+        maxBitRate: Int?,
+        drawerFactory: (DrawerContext) -> OverlayFrameDrawer,
+    ) {
         try {
-            runLoop(cropAspectRatio, drawerFactory)
+            runLoop(cropAspectRatio, maxBitRate, drawerFactory)
         } catch (t: Throwable) {
             // Clean up the partial output file. Never touch the input file.
             File(outputPath).delete()
@@ -65,7 +70,11 @@ internal class VideoTranscodeEngine(
         }
     }
 
-    private fun runLoop(cropAspectRatio: Float?, drawerFactory: (DrawerContext) -> OverlayFrameDrawer) {
+    private fun runLoop(
+        cropAspectRatio: Float?,
+        maxBitRate: Int?,
+        drawerFactory: (DrawerContext) -> OverlayFrameDrawer,
+    ) {
         // Nullable vars exist only for the finally block; try always uses the non-null local.
         var extractorRef: MediaExtractor? = null
         var decoderRef: MediaCodec? = null
@@ -117,7 +126,7 @@ internal class VideoTranscodeEngine(
             // ----- Encoder + EGL -----
             val encoder = MediaCodec.createEncoderByType(ENCODER_MIME).also { encoderRef = it }
             encoder.configure(
-                buildEncoderFormat(inputFormat, outputWidth, outputHeight),
+                buildEncoderFormat(inputFormat, outputWidth, outputHeight, maxBitRate),
                 null,
                 null,
                 MediaCodec.CONFIGURE_FLAG_ENCODE,
@@ -138,12 +147,9 @@ internal class VideoTranscodeEngine(
             extractor.selectTrack(videoTrack)
             // Force no auto-rotate (device behavior varies); rotation handled deterministically via GL instead.
             inputFormat.setInteger(MediaFormat.KEY_ROTATION, 0)
-            val decoder = MediaCodec.createDecoderByType(mime).also { decoderRef = it }
-            decoder.configure(inputFormat, outputSurface.surface, null, 0)
-            decoder.start()
+            val decoder = startDecoder(mime, inputFormat, outputSurface.surface).also { decoderRef = it }
 
-            // ----- Muxer -----
-            // Skip setOrientationHint(): pixels are already rotated upright, avoiding a double rotation on playback.
+            // ----- Muxer (no setOrientationHint: pixels are already upright) -----
             val muxer = MediaMuxer(outputPath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
                 .also { muxerRef = it }
 
@@ -307,18 +313,71 @@ internal class VideoTranscodeEngine(
         }
     }
 
+    /** Starts a decoder, falling back to Google's software decoder when hardware rejects the file. */
+    private fun startDecoder(mime: String, format: MediaFormat, surface: Surface): MediaCodec {
+        val decoder = MediaCodec.createDecoderByType(mime)
+        try {
+            decoder.configure(format, surface, null, 0)
+            decoder.start()
+            return decoder
+        } catch (e: IllegalArgumentException) {
+            return startSoftwareDecoderOrThrow(decoder, mime, format, surface, e)
+        } catch (e: MediaCodec.CodecException) {
+            return startSoftwareDecoderOrThrow(decoder, mime, format, surface, e)
+        }
+    }
+
+    private fun startSoftwareDecoderOrThrow(
+        failedDecoder: MediaCodec,
+        mime: String,
+        format: MediaFormat,
+        surface: Surface,
+        original: Exception,
+    ): MediaCodec {
+        runCatching { failedDecoder.release() }
+        val softwareDecoder = createSoftwareDecoder(mime) ?: throw original
+        try {
+            softwareDecoder.configure(format, surface, null, 0)
+            softwareDecoder.start()
+            return softwareDecoder
+        } catch (t: Throwable) {
+            // Not yet in decoderRef, so release here or the codec instance leaks.
+            runCatching { softwareDecoder.release() }
+            t.addSuppressed(original)
+            throw t
+        }
+    }
+
+    /** Finds Google's own software decoder for [mime], distinct from the device's hardware one. */
+    private fun createSoftwareDecoder(mime: String): MediaCodec? {
+        val name = MediaCodecList(MediaCodecList.REGULAR_CODECS).codecInfos
+            .filter { !it.isEncoder && it.supportedTypes.any { type -> type.equals(mime, ignoreCase = true) } }
+            .firstOrNull { it.name.startsWith("OMX.google.") || it.name.startsWith("c2.android.") }
+            ?.name
+            ?: return null
+        return MediaCodec.createByCodecName(name)
+    }
+
     private fun buildEncoderFormat(
         inputFormat: MediaFormat,
         width: Int,
         height: Int,
+        maxBitRate: Int?,
     ): MediaFormat {
         val frameRate = inputFormat.optInt(MediaFormat.KEY_FRAME_RATE, DEFAULT_FRAME_RATE)
             .coerceIn(1, 240)
         val sourceBitRate = inputFormat.optInt(MediaFormat.KEY_BIT_RATE, 0)
         // ~0.15 bit / pixel / frame when the container doesn't declare a bitrate.
         val estimated = (width.toLong() * height * frameRate * 0.15).roundToInt()
-        val bitRate = (if (sourceBitRate > 0) sourceBitRate else estimated)
-            .coerceIn(MIN_BIT_RATE, MAX_BIT_RATE)
+        // Ceiling never undercuts the source, so 4K sources keep their own bitrate.
+        val preferred = (if (sourceBitRate > 0) sourceBitRate else estimated)
+            .coerceIn(MIN_BIT_RATE, maxOf(MAX_BIT_RATE, sourceBitRate))
+        // The cap wins even over MIN_BIT_RATE, so output fits the upload limit in one pass.
+        val bitRate = if (maxBitRate != null) {
+            minOf(preferred, maxBitRate.coerceAtLeast(MIN_BIT_RATE_CAP))
+        } else {
+            preferred
+        }
 
         return MediaFormat.createVideoFormat(ENCODER_MIME, width, height).apply {
             setInteger(
@@ -377,6 +436,8 @@ internal class VideoTranscodeEngine(
         const val I_FRAME_INTERVAL_SEC = 1
         const val MIN_BIT_RATE = 1_000_000
         const val MAX_BIT_RATE = 24_000_000
+        /** Lowest accepted maxBitRate; tinier caps make encoders fail or emit mush. */
+        const val MIN_BIT_RATE_CAP = 100_000
         const val ENCODER_POLL_TIMEOUT_US = 10_000L
         const val NO_PROGRESS_TIMEOUT_MS = 20_000L
 

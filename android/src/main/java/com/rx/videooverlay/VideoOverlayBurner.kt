@@ -15,7 +15,7 @@ internal class VideoOverlayBurner(
         val cues = OverlayCueParser.parse(cuesJson)
         val style = OverlayStyleParser.parse(styleJson)
 
-        engine.transcode(style.cropAspectRatio) { ctx ->
+        engine.transcode(style.cropAspectRatio, style.maxBitRate) { ctx ->
             FrameRenderer(
                 ctx.outputWidth,
                 ctx.outputHeight,

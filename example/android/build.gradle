@@ -22,7 +22,4 @@ buildscript {
     }
 }
 
-// react-native-video was removed (its ReactExoplayerView.java source hard-required
-// androidx.media3 1.8.0, which conflicted with react-native-vision-camera's CameraX
-// 1.7.0-alpha02 recording path requiring media3-muxer 1.9.0 — see example/README.md). With it
-// gone, media3 has no forced version and CameraX's own requirements resolve on their own.
+// react-native-video removed: its media3 1.8.0 pin conflicted with vision-camera's CameraX (see example/README.md).

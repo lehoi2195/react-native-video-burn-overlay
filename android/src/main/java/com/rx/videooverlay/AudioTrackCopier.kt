@@ -19,10 +19,7 @@ internal class AudioTrackCopier(
 
     private val sourceFormat: MediaFormat = extractor.getTrackFormat(trackIndex)
 
-    // Some OEM MediaMuxer implementations (observed: Samsung One UI) write a track with no
-    // sample description when addTrack() gets the extractor's raw format verbatim — it carries
-    // container/vendor keys (encoder-delay, track-id, ...) MediaMuxer isn't guaranteed to handle.
-    // A minimal format with only the keys a muxer actually needs avoids that.
+    // Some OEM muxers (Samsung) drop the sample description for raw extractor formats; pass minimal keys.
     val format: MediaFormat = MediaFormat.createAudioFormat(
         checkNotNull(sourceFormat.getString(MediaFormat.KEY_MIME)) { "Audio track has no mime type" },
         sourceFormat.getInteger(MediaFormat.KEY_SAMPLE_RATE),

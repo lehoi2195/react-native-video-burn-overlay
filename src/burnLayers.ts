@@ -79,11 +79,14 @@ export interface BurnLayersOptions {
   layers: OverlayLayer[];
   /** Center-crops the output to this width/height ratio; only ever trims, never letterboxes. */
   cropAspectRatio?: number;
+  /** Video bitrate cap in bits/s, e.g. from an upload size limit. Omit for no cap. */
+  maxBitRate?: number;
 }
 
 /** Burns a stack of layers visible at once, each with its own position and style. */
 export async function burnLayers(options: BurnLayersOptions): Promise<string> {
-  const { inputPath, outputPath, layers, cropAspectRatio } = options;
+  const { inputPath, outputPath, layers, cropAspectRatio, maxBitRate } =
+    options;
   if (layers.length === 0) {
     throw new Error('burnLayers: `layers` must not be empty');
   }
@@ -91,6 +94,6 @@ export async function burnLayers(options: BurnLayersOptions): Promise<string> {
     inputPath,
     outputPath,
     JSON.stringify(layers),
-    JSON.stringify({ cropAspectRatio })
+    JSON.stringify({ cropAspectRatio, maxBitRate })
   );
 }

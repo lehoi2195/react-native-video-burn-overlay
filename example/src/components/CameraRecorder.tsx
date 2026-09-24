@@ -39,7 +39,7 @@ import { useLocationStamp } from '../utils/useLocationStamp';
 import OverlayPreview, { type Size } from './OverlayPreview';
 import StyleSettingsPanel from './StyleSettingsPanel';
 
-/** Screen background; the status bar is painted the same so there's no seam at the top edge. */
+/** Screen background; the status bar matches so there's no seam at the top. */
 const SCREEN_BACKGROUND = '#141B2A';
 
 // StyleSettingsPanel needs image-overlay props; this screen never uses image mode.
@@ -55,7 +55,7 @@ const RECORDING_TIMER_TICK_MS = 1000;
 /** How long to withhold torch commands after the session becomes active before trusting it's ready. */
 const TORCH_READY_BUFFER_MS = 500;
 
-/** Caps the long edge so the demo burn stays fast instead of chasing 4K/8K capture modes. */
+/** Caps the long edge so the demo burn stays fast, avoiding 4K/8K capture. */
 const MAX_LONG_EDGE = 1920;
 
 /** Fixed by design: the viewfinder is always a 3:4 portrait frame at full device width. */
@@ -83,7 +83,7 @@ function isBenignCancellation(message: string): boolean {
   return /OperationCanceledException|Camera is not active/i.test(message);
 }
 
-/** Keeps a native stack trace from flooding the banner; only the first line names the failure. */
+/** Keeps native stack traces out of the banner; the first line names the failure. */
 function firstLineOf(message: string): string {
   return message.split('\n')[0] ?? message;
 }
@@ -296,7 +296,7 @@ export default function CameraRecorder({
             startedAtRef.current ?? startedAt,
             locationStamp.addressLines
           );
-          // Re-read rather than reuse state, so the size reported up is the one just recorded at.
+          // Re-read, not reuse state, so the reported size is the one just recorded.
           const finalSize = videoOutput.currentResolution ?? targetResolution;
           onRecorded(
             filePath,

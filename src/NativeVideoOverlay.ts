@@ -6,8 +6,8 @@ export interface Spec extends TurboModule {
   /**
    * @param videoPath Filesystem path to the source video (no `file://` prefix).
    * @param outputPath Filesystem path to write the burned result to.
-   * @param cuesJson JSON-stringified `OverlayCue[]`, passed as a string since codegen supports that type most reliably.
-   * @param styleJson JSON-stringified `OverlayStyle` (may be `"{}"`); missing or invalid fields fall back to defaults.
+   * @param cuesJson JSON-stringified `OverlayCue[]`; a string because codegen handles strings most reliably.
+   * @param styleJson JSON-stringified `OverlayStyle`, may be `"{}"`; invalid fields fall back to defaults.
    * @returns The output path of the burned video.
    */
   burnOverlay(
@@ -22,7 +22,7 @@ export interface Spec extends TurboModule {
    * @param videoPath Filesystem path to the source video (no `file://` prefix).
    * @param outputPath Filesystem path to write the burned result to.
    * @param layersJson JSON-stringified `OverlayLayer[]`, string for the same codegen reason as cuesJson.
-   * @param optionsJson JSON-stringified `{ cropAspectRatio?: number }` (may be `"{}"`).
+   * @param optionsJson JSON-stringified `{ cropAspectRatio?: number; maxBitRate?: number }` (may be `"{}"`).
    * @returns The output path of the burned video.
    */
   burnLayers(
@@ -31,6 +31,9 @@ export interface Spec extends TurboModule {
     layersJson: string,
     optionsJson: string
   ): Promise<string>;
+
+  /** Keeps the screen awake so auto-lock can't background the app mid-burn. */
+  setKeepScreenOn(enabled: boolean): void;
 }
 
 export default TurboModuleRegistry.getEnforcing<Spec>('VideoOverlay');

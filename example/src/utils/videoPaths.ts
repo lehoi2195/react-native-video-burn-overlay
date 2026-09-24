@@ -21,16 +21,7 @@ interface PickedAsset {
   fileName?: string;
 }
 
-/**
- * Picks the raw, picker-returned candidate most likely to be readable — NOT a final usable path.
- * Prefers `uri` over `originalPath`: react-native-image-picker's Android implementation documents
- * `uri` as already being a copy in app-specific cache storage for images, and a `content://` URI
- * (readable via ContentResolver, the officially supported access route) for gallery video. Its
- * `originalPath`, by contrast, comes straight from the MediaStore DATA column, which for Android's
- * modern Photo Picker (the default picker on Android 13+) is a synthetic FUSE-redirect path — it
- * looks like a real filesystem path but only reliably supports reading the exact picked item.
- * Callers must still run this through `copyPickedAssetToCache` before treating it as a real path.
- */
+/** Picks the most-readable raw picker path (`uri` over FUSE `originalPath`); still copy it to cache. */
 function resolvePickedAssetSource(asset: PickedAsset): string {
   const candidate = asset.uri ?? asset.originalPath ?? '';
   return stripFileScheme(candidate);
@@ -47,25 +38,13 @@ function extensionOf(pathOrName: string | undefined): string | undefined {
     return undefined;
   }
   const candidate = withoutQuery.slice(dotIndex + 1);
-  // Guards against content:// URIs whose last path segment is a numeric id, not a real extension.
+  // Guards against content:// URIs whose last segment is a numeric id, not an extension.
   return /^[A-Za-z0-9]{1,5}$/.test(candidate)
     ? candidate.toLowerCase()
     : undefined;
 }
 
-/**
- * Copies a picker-returned photo/video into the app's own cache directory and returns the real,
- * app-owned path to the copy.
- *
- * WHY: react-native-image-picker can hand back a path/uri that *looks* like an ordinary,
- * directly-usable filesystem path but isn't reliably one — most notably Android's modern Photo
- * Picker, which routes `originalPath` through a synthetic FUSE redirect that only supports
- * reading the exact picked item (writing a sibling file next to it, as `outputPathFor` does,
- * fails with EFAULT) and isn't guaranteed to be reliably readable via plain native file I/O
- * either (this is also the likely cause of a black `<Video>`/`<Image>` preview). Copying the
- * bytes into a file this app created itself sidesteps all of that: from then on it's an ordinary
- * file the app fully owns, on both Android and iOS (which has its own analogous `ph://` quirks).
- */
+/** Copies a picked photo/video into app-owned cache, avoiding picker FUSE/ph:// path quirks. */
 export async function copyPickedAssetToCache(
   asset: PickedAsset,
   fallbackExtension: string
@@ -143,8 +122,6 @@ export function outputPathFor(videoPath: string): string {
   const fileName = videoPath.slice(videoPath.lastIndexOf('/') + 1);
   const dotIndex = fileName.lastIndexOf('.');
   const base = dotIndex > 0 ? fileName.slice(0, dotIndex) : fileName;
-  // Targets the cache dir explicitly rather than "next to" videoPath — defense in depth, since
-  // inputs are now always app-owned cache files anyway (see copyPickedAssetToCache), but this
-  // keeps outputPathFor correct even if a future source lives in a non-writable directory.
+  // Target the cache dir, not videoPath's folder, in case a source dir is read-only.
   return `${CachesDirectoryPath}/${base}_burned.mp4`;
 }

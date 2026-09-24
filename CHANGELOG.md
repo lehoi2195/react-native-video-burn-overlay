@@ -2,6 +2,24 @@
 
 All notable changes to this project are documented here.
 
+## [0.0.7] - 2026-09-24
+
+### Added
+
+- `maxBitRate` option on `burnOverlay` and `burnLayers`: caps the video bitrate (bits/s) so the output fits an upload size limit in a single pass. Caps below 100 kbps are raised to 100 kbps.
+- `setKeepScreenOn(enabled)`: keeps the screen awake so auto-lock can't background the app mid-burn; reset automatically on a JS reload.
+
+### Changed
+
+- iOS: both burners now run on a shared `AVAssetReader` → CPU overlay blit → `AVAssetWriter` pipeline (`VOBurnPipeline`) instead of `AVAssetExportSession` + `AVVideoCompositionCoreAnimationTool`. Overlays are pre-rendered to a bitmap and re-composited only when the visible set changes, so most frames cost a single small blit — burns are much faster.
+- iOS: video is encoded at the source bitrate ×1.5 (floor 1 Mbps, ceiling 20 Mbps or the source bitrate, whichever is higher) instead of the `HighestQuality` preset, giving smaller files at the same visual quality; AAC audio is copied untouched instead of re-encoded; source frame timing is preserved (no dropped/duplicated frames).
+- Android: the 24 Mbps bitrate ceiling no longer undercuts high-bitrate (e.g. 4K) sources.
+
+### Fixed
+
+- iOS: burns no longer fail with `-11847 Operation Interrupted` when the app backgrounds mid-burn (background task assertion), and a failed burn is retried once.
+- Android: hardware decoders on some MediaTek/Unisoc devices that reject a file at `configure()`/`start()` now fall back to the platform software decoder instead of failing the burn.
+
 ## [0.0.6] - 2026-08-14
 
 ### Added

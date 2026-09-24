@@ -82,6 +82,7 @@ Each **cue** is a `[startSec, endSec)` time window plus what to show. One cue pe
 | `cues` | `OverlayCue[]` | What to draw and when. |
 | `style` | `OverlayStyle?` | One style for the whole call. |
 | `cropAspectRatio` | `number?` | Center-crops the output to this width/height ratio (e.g. `3/4`). Trims only — never pads or upscales. |
+| `maxBitRate` | `number?` | Video bitrate cap in bits/s, e.g. derived from an upload size limit. Omit for no cap. |
 
 Rejects if the source has no video track, `cues` is empty/malformed, or the encoder fails. An unreadable `imagePath` is skipped silently, not a rejection.
 
@@ -156,6 +157,7 @@ Layers draw bottom-to-top in array order.
 | `inputPath` / `outputPath` | `string` | required |
 | `layers` | `OverlayLayer[]` | required, non-empty |
 | `cropAspectRatio` | `number?` | none — same trim-only crop as `burnOverlay` |
+| `maxBitRate` | `number?` | none — same bitrate cap as `burnOverlay` |
 
 **`OverlayLayer`**
 
@@ -197,6 +199,19 @@ Set `tile` on any layer to repeat it across the whole frame instead of once. `po
 Capped at 400 tiles/layer; spacing too tight to fit is widened automatically.
 
 Full contract: [`docs/burn-layers-spec.md`](docs/burn-layers-spec.md).
+
+### `setKeepScreenOn(enabled: boolean): void`
+
+Keeps the screen awake while enabled, so auto-lock can't background the app mid-burn. Blocks idle auto-lock only, not the power button. Reset automatically on a JS reload.
+
+```ts
+setKeepScreenOn(true);
+try {
+  await burnOverlay({ inputPath, outputPath, cues });
+} finally {
+  setKeepScreenOn(false);
+}
+```
 
 ## Custom layouts
 

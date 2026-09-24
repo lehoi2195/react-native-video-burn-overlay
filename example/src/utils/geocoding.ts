@@ -20,7 +20,7 @@ export type AddressLines = readonly [string, string];
 
 const NOMINATIM_URL = 'https://nominatim.openstreetmap.org/reverse';
 
-/** Free, no API key; OSM's usage policy asks for max ~1 request/sec, so callers must throttle. */
+/** Free, keyless OSM endpoint; its policy allows ~1 request/sec, so callers must throttle. */
 export async function reverseGeocode(
   latitude: number,
   longitude: number

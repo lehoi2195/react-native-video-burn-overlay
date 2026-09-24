@@ -1,18 +1,13 @@
-//
-//  VideoLayerBurner.m
-//  react-native-video-overlay
-//
-
 #import "VideoLayerBurner.h"
 
 #import <AVFoundation/AVFoundation.h>
-#import <QuartzCore/QuartzCore.h>
 #import <UIKit/UIKit.h>
+
+#import "VOBurnPipeline.h"
 
 #pragma mark - Display constants
 
-/// Mirrors VideoOverlayBurner.m's constants; kept separate so that file stays untouched.
-/// Font ratio and floor intentionally match Android's, so burnLayers sizes text identically.
+/// Kept separate from VideoOverlayBurner.m; font ratio and floor match Android so text sizes agree.
 static const CGFloat kVOLFontSizeRatio = 0.032;
 static const CGFloat kVOLMarginRatio = 0.05;
 static const CGFloat kVOLLineHeightRatio = 1.35;
@@ -114,29 +109,6 @@ static CGFloat VOLDegreesToRadians(CGFloat degrees)
   return degrees * (CGFloat)M_PI / 180.0;
 }
 
-/// H.264/HEVC require even dimensions; mirrors VOEvenSize exactly.
-static CGFloat VOLEvenSize(CGFloat value)
-{
-  CGFloat rounded = round(value / 2.0) * 2.0;
-  return MAX(rounded, 2.0);
-}
-
-/// Centre-crops only, never pads or upscales; mirrors VOCropSize exactly.
-static CGSize VOLCropSize(CGSize size, CGFloat ratio)
-{
-  if (!(ratio > 0.0) || !(size.width > 0.0) || !(size.height > 0.0)) {
-    return size;
-  }
-  CGFloat current = size.width / size.height;
-  if (current > ratio) {
-    return CGSizeMake(VOLEvenSize(MIN(size.height * ratio, size.width)), size.height);
-  }
-  if (current < ratio) {
-    return CGSizeMake(size.width, VOLEvenSize(MIN(size.width / ratio, size.height)));
-  }
-  return size;
-}
-
 /// Parses a hex color, nil on invalid input; mirrors VOColorFromHexValue exactly.
 static UIColor *_Nullable VOLColorFromHex(id _Nullable value)
 {
@@ -226,7 +198,7 @@ static VOLPosition VOLPositionFromString(id _Nullable value, VOLPosition fallbac
   return fallback;
 }
 
-#pragma mark - Anchor position (top-left JS space -> bottom-left CA space)
+#pragma mark - Anchor position (top-left JS space -> bottom-left frame space)
 
 /// Mirrors VOPositionHorizontal exactly, generalized to take raw fields.
 static VOLHorizontalAlign VOLPositionHorizontal(VOLPosition position, CGFloat customX)
@@ -347,44 +319,6 @@ static NSDictionary<NSAttributedStringKey, id> *VOLTextAttributes(CGFloat fontSi
     attributes[NSStrokeWidthAttributeName] = @(percent);
   }
   return attributes;
-}
-
-#pragma mark - Opacity keyframes
-
-/// Mirrors VOOpacityAnimation's discrete keyframe approach for a single time window.
-static CAKeyframeAnimation *VOLOpacityAnimation(double startSec, double endSec, double durationSec, CGFloat maxOpacity)
-{
-  NSMutableArray<NSNumber *> *keyTimes = [NSMutableArray array];
-  NSMutableArray<NSNumber *> *values = [NSMutableArray array];
-  __block double lastKeyTime = -1.0;
-
-  void (^addKeyframe)(double, double) = ^(double normalizedTime, double opacity) {
-    double clamped = MIN(MAX(normalizedTime, 0.0), 1.0);
-    if (keyTimes.count > 0 && clamped <= lastKeyTime) {
-      values[values.count - 1] = @(opacity);
-      return;
-    }
-    lastKeyTime = clamped;
-    [keyTimes addObject:@(clamped)];
-    [values addObject:@(opacity)];
-  };
-
-  addKeyframe(0.0, 0.0);
-  addKeyframe(startSec / durationSec, maxOpacity);
-  addKeyframe(endSec / durationSec, 0.0);
-  if (lastKeyTime < 1.0) {
-    addKeyframe(1.0, 0.0);
-  }
-
-  CAKeyframeAnimation *animation = [CAKeyframeAnimation animationWithKeyPath:@"opacity"];
-  animation.calculationMode = kCAAnimationDiscrete;
-  animation.keyTimes = keyTimes;
-  animation.values = values;
-  animation.duration = durationSec;
-  animation.beginTime = AVCoreAnimationBeginTimeAtZero;
-  animation.removedOnCompletion = NO;
-  animation.fillMode = kCAFillModeForwards;
-  return animation;
 }
 
 #pragma mark - Parsing
@@ -622,8 +556,8 @@ static NSArray<VOLLayer *> *_Nullable VOLParseLayers(NSString *layersJson, NSErr
   return layers;
 }
 
-/// Only field is cropAspectRatio; malformed JSON silently means "no crop".
-static CGFloat VOLParseCropAspectRatio(NSString *_Nullable optionsJson)
+/// Reads one finite, positive number from optionsJson; anything else (or malformed JSON) means unset (0).
+static double VOLParsePositiveOption(NSString *_Nullable optionsJson, NSString *key)
 {
   if (optionsJson.length == 0) {
     return 0.0;
@@ -634,11 +568,11 @@ static CGFloat VOLParseCropAspectRatio(NSString *_Nullable optionsJson)
   if (jsonError != nil || ![parsed isKindOfClass:[NSDictionary class]]) {
     return 0.0;
   }
-  id rawRatio = ((NSDictionary *)parsed)[@"cropAspectRatio"];
-  if ([rawRatio isKindOfClass:[NSNumber class]]) {
-    double ratio = [(NSNumber *)rawRatio doubleValue];
-    if (isfinite(ratio) && ratio > 0.0) {
-      return ratio;
+  id rawValue = ((NSDictionary *)parsed)[key];
+  if ([rawValue isKindOfClass:[NSNumber class]]) {
+    double value = [(NSNumber *)rawValue doubleValue];
+    if (isfinite(value) && value > 0.0) {
+      return value;
     }
   }
   return 0.0;
@@ -680,7 +614,59 @@ static UIImage *_Nullable VOLLoadNormalizedImage(NSString *path)
   }];
 }
 
-static CALayer *_Nullable VOLBuildImageLayer(VOLLayer *layer, CGSize renderSize)
+#pragma mark - Pre-rendered layers
+
+/// One layer rendered once into its own bitmap, placed in y-up frame coordinates.
+@interface VOLRenderedLayer : NSObject
+@property (nonatomic, strong) UIImage *image;
+@property (nonatomic) CGRect rect;
+@property (nonatomic) CGFloat opacity;
+@property (nonatomic) double startSec;
+@property (nonatomic) double endSec;
+@end
+
+@implementation VOLRenderedLayer
+@end
+
+/// Renders `size` content rotated clockwise about its centre, into its bounding-box bitmap.
+static UIImage *VOLRenderRotated(CGSize size, CGFloat rotationDegrees, void (^draw)(CGRect rect))
+{
+  CGFloat radians = VOLDegreesToRadians(rotationDegrees);
+  CGFloat cosine = fabs(cos(radians));
+  CGFloat sine = fabs(sin(radians));
+  CGSize bounds = CGSizeMake(ceil(size.width * cosine + size.height * sine),
+                             ceil(size.width * sine + size.height * cosine));
+  UIGraphicsImageRenderer *renderer = [[UIGraphicsImageRenderer alloc] initWithSize:bounds format:VOOverlayCanvasFormat()];
+  return [renderer imageWithActions:^(UIGraphicsImageRendererContext *_Nonnull rendererContext) {
+    CGContextRef ctx = rendererContext.CGContext;
+    CGContextTranslateCTM(ctx, bounds.width / 2.0, bounds.height / 2.0);
+    // The canvas is y-down, so positive radians turn clockwise, matching JS/Android.
+    CGContextRotateCTM(ctx, radians);
+    draw(CGRectMake(-size.width / 2.0, -size.height / 2.0, size.width, size.height));
+  }];
+}
+
+/// Wraps a bitmap centred on `center` (y-up), with the layer's opacity and clamped time window.
+static VOLRenderedLayer *_Nullable VOLMakeRenderedLayer(UIImage *_Nullable image, CGPoint center, VOLLayer *layer, double durationSec)
+{
+  double start = MAX(layer.startSec, 0.0);
+  double end = MIN(layer.hasEndSec ? layer.endSec : durationSec, durationSec);
+  if (image == nil || end <= start + kVOLTimeEpsilon || !(layer.opacity > 0.0)) {
+    return nil; // nothing to draw, or the window never overlaps the clip
+  }
+  VOLRenderedLayer *rendered = [[VOLRenderedLayer alloc] init];
+  rendered.image = image;
+  rendered.rect = CGRectMake(center.x - image.size.width / 2.0,
+                             center.y - image.size.height / 2.0,
+                             image.size.width,
+                             image.size.height);
+  rendered.opacity = layer.opacity;
+  rendered.startSec = start;
+  rendered.endSec = end;
+  return rendered;
+}
+
+static VOLRenderedLayer *_Nullable VOLRenderImageLayer(VOLLayer *layer, CGSize renderSize, double durationSec)
 {
   UIImage *image = VOLLoadNormalizedImage(layer.source);
   CGImageRef cgImage = image.CGImage;
@@ -700,19 +686,14 @@ static CALayer *_Nullable VOLBuildImageLayer(VOLLayer *layer, CGSize renderSize)
   CGFloat x = VOLAnchorX(layer.position, layer.customX, margin, size.width, renderSize.width);
   CGFloat y = VOLAnchorYForBlock(layer.position, layer.customY, margin, size.height, renderSize.height);
 
-  CALayer *imageLayer = [CALayer layer];
-  imageLayer.contentsScale = 1.0;
-  imageLayer.frame = CGRectMake(x, y, size.width, size.height);
-  imageLayer.contents = (__bridge id)cgImage;
-  if (layer.rotationDegrees != 0.0) {
-    // Negate: CA's rotation is CCW-positive here, JS/Android rotation is clockwise-positive.
-    imageLayer.transform = CATransform3DMakeRotation(-VOLDegreesToRadians(layer.rotationDegrees), 0, 0, 1);
-  }
-  return imageLayer;
+  UIImage *bitmap = VOLRenderRotated(size, layer.rotationDegrees, ^(CGRect rect) {
+    [image drawInRect:rect];
+  });
+  return VOLMakeRenderedLayer(bitmap, CGPointMake(x + size.width / 2.0, y + size.height / 2.0), layer, durationSec);
 }
 
-/// One CATextLayer per line, like VideoOverlayBurner.m's proven slot math, not one multi-line layer.
-static CALayer *_Nullable VOLBuildTextLayer(VOLLayer *layer, CGSize renderSize)
+/// Lines stack top-to-bottom in one block, so rotation spins the whole block, not each line.
+static VOLRenderedLayer *_Nullable VOLRenderTextLayer(VOLLayer *layer, CGSize renderSize, double durationSec)
 {
   if (layer.text.length == 0) {
     return nil;
@@ -730,45 +711,45 @@ static CALayer *_Nullable VOLBuildTextLayer(VOLLayer *layer, CGSize renderSize)
 
   CGFloat margin = floor(renderSize.width * layer.marginRatio);
   CGFloat textWidth = MAX(renderSize.width - margin * 2.0, 1.0);
-  // Box always spans margin-to-margin; alignmentMode below does the real horizontal placement.
-  CGFloat containerY = VOLAnchorYForBlock(layer.position, layer.customY, margin, blockHeight, renderSize.height);
+  // Box always spans margin-to-margin; the paragraph alignment does the real horizontal placement.
+  CGFloat blockY = VOLAnchorYForBlock(layer.position, layer.customY, margin, blockHeight, renderSize.height);
 
-  CATextLayerAlignmentMode alignmentMode;
+  NSMutableParagraphStyle *paragraph = [[NSMutableParagraphStyle alloc] init];
   switch (VOLPositionHorizontal(layer.position, layer.customX)) {
-    case VOLHorizontalLeft: alignmentMode = kCAAlignmentLeft; break;
-    case VOLHorizontalCenter: alignmentMode = kCAAlignmentCenter; break;
-    case VOLHorizontalRight: alignmentMode = kCAAlignmentRight; break;
+    case VOLHorizontalLeft: paragraph.alignment = NSTextAlignmentLeft; break;
+    case VOLHorizontalCenter: paragraph.alignment = NSTextAlignmentCenter; break;
+    case VOLHorizontalRight: paragraph.alignment = NSTextAlignmentRight; break;
   }
-  NSDictionary<NSAttributedStringKey, id> *attributes = VOLTextAttributes(fontSize, layer);
+  paragraph.lineBreakMode = NSLineBreakByTruncatingTail;
+  NSMutableDictionary<NSAttributedStringKey, id> *attributes = [VOLTextAttributes(fontSize, layer) mutableCopy];
+  attributes[NSParagraphStyleAttributeName] = paragraph;
 
-  // Container groups every line so rotation below spins the whole block, not each line.
-  CALayer *container = [CALayer layer];
-  container.frame = CGRectMake(margin, containerY, textWidth, blockHeight);
-  container.masksToBounds = NO;
-
-  for (NSUInteger i = 0; i < lineCount; i++) {
-    // First line (i=0) is the top line, so it gets the highest slot (spec: top-to-bottom).
-    NSUInteger slot = lineCount - 1 - i;
-    CATextLayer *lineLayer = [CATextLayer layer];
-    lineLayer.contentsScale = 1.0;
-    lineLayer.frame = CGRectMake(0.0, (CGFloat)slot * lineHeight, textWidth, lineBoxHeight);
-    lineLayer.alignmentMode = alignmentMode;
-    lineLayer.wrapped = NO;
-    lineLayer.truncationMode = kCATruncationEnd;
-    lineLayer.string = [[NSAttributedString alloc] initWithString:lines[i] attributes:attributes];
-    [container addSublayer:lineLayer];
-  }
-
-  if (layer.rotationDegrees != 0.0) {
-    container.transform = CATransform3DMakeRotation(-VOLDegreesToRadians(layer.rotationDegrees), 0, 0, 1);
-  }
-  return container;
+  // Pad for stroke outlines and glyph overhang past the line boxes.
+  CGFloat pad = ceil(fontSize * 0.5);
+  CGSize size = CGSizeMake(textWidth + pad * 2.0, blockHeight + pad * 2.0);
+  UIImage *bitmap = VOLRenderRotated(size, layer.rotationDegrees, ^(CGRect rect) {
+    for (NSUInteger i = 0; i < lineCount; i++) {
+      // Text sits flush against each line box's top edge; line 0 is the top.
+      CGRect box = CGRectMake(rect.origin.x + pad,
+                              rect.origin.y + pad + (CGFloat)i * lineHeight,
+                              textWidth,
+                              lineBoxHeight);
+      [[[NSAttributedString alloc] initWithString:lines[i] attributes:attributes]
+          drawWithRect:box
+               options:NSStringDrawingUsesLineFragmentOrigin | NSStringDrawingTruncatesLastVisibleLine
+               context:nil];
+    }
+  });
+  return VOLMakeRenderedLayer(bitmap,
+                              CGPointMake(margin + textWidth / 2.0, blockY + blockHeight / 2.0),
+                              layer,
+                              durationSec);
 }
 
 #pragma mark - Tiling
 
-/// Bakes the whole repeated pattern once into a single full-frame CGImage.
-static CALayer *_Nullable VOLBuildTileLayer(VOLLayer *layer, CGSize renderSize)
+/// Bakes the whole repeated pattern once into a single full-frame image.
+static UIImage *_Nullable VOLBuildTileImage(VOLLayer *layer, CGSize renderSize)
 {
   VOLTileConfig *tile = layer.tile;
   UIImage *tileImage = nil;
@@ -848,11 +829,8 @@ static CALayer *_Nullable VOLBuildTileLayer(VOLLayer *layer, CGSize renderSize)
     iterations++;
   } while (YES);
 
-  UIGraphicsImageRendererFormat *format = [UIGraphicsImageRendererFormat preferredFormat];
-  // Scale must be 1.0: renderSize is video pixels, not screen points.
-  format.scale = 1.0;
-  format.opaque = NO;
-  UIGraphicsImageRenderer *renderer = [[UIGraphicsImageRenderer alloc] initWithSize:renderSize format:format];
+  UIGraphicsImageRenderer *renderer = [[UIGraphicsImageRenderer alloc] initWithSize:renderSize
+                                                                              format:VOOverlayCanvasFormat()];
   CGFloat perTileRotation = angleRadians + VOLDegreesToRadians(layer.rotationDegrees);
 
   UIImage *baked = [renderer imageWithActions:^(UIGraphicsImageRendererContext *_Nonnull rendererContext) {
@@ -880,64 +858,113 @@ static CALayer *_Nullable VOLBuildTileLayer(VOLLayer *layer, CGSize renderSize)
     }
   }];
 
-  if (baked.CGImage == NULL) {
+  return baked.CGImage != NULL ? baked : nil;
+}
+
+#pragma mark - Overlay renderer
+
+/// Array order is z-order: index 0 = bottom, last = top.
+static NSArray<VOLRenderedLayer *> *VOLRenderLayers(NSArray<VOLLayer *> *layers, CGSize renderSize, double durationSec)
+{
+  NSMutableArray<VOLRenderedLayer *> *rendered = [NSMutableArray arrayWithCapacity:layers.count];
+  for (VOLLayer *layer in layers) {
+    VOLRenderedLayer *_Nullable built;
+    if (layer.tile != nil) {
+      // The baked tile image already spans the whole frame, rotation included.
+      built = VOLMakeRenderedLayer(VOLBuildTileImage(layer, renderSize),
+                                   CGPointMake(renderSize.width / 2.0, renderSize.height / 2.0),
+                                   layer,
+                                   durationSec);
+    } else if (layer.isText) {
+      built = VOLRenderTextLayer(layer, renderSize, durationSec);
+    } else {
+      built = VOLRenderImageLayer(layer, renderSize, durationSec);
+    }
+    if (built != nil) {
+      [rendered addObject:built]; // nil: decode failure, empty text or no visible window
+    }
+  }
+  return rendered;
+}
+
+/// Blits visible layers per frame; the composite is rebuilt only when the visible set changes.
+@interface VOLOverlayRenderer : NSObject
+- (instancetype)initWithLayers:(NSArray<VOLRenderedLayer *> *)layers renderSize:(CGSize)renderSize;
+- (void)drawIntoPixelBuffer:(CVPixelBufferRef)pixelBuffer atTime:(double)seconds;
+@end
+
+@implementation VOLOverlayRenderer {
+  NSArray<VOLRenderedLayer *> *_layers;
+  /// Union of every layer rect in y-up frame coordinates, clipped to the frame.
+  CGRect _contentRect;
+  NSIndexSet *_cachedVisible;
+  UIImage *_cachedOverlay;
+}
+
+- (instancetype)initWithLayers:(NSArray<VOLRenderedLayer *> *)layers renderSize:(CGSize)renderSize
+{
+  if ((self = [super init])) {
+    _layers = layers;
+    CGRect content = CGRectNull;
+    for (VOLRenderedLayer *layer in layers) {
+      content = CGRectUnion(content, layer.rect);
+    }
+    CGRect frame = CGRectMake(0.0, 0.0, renderSize.width, renderSize.height);
+    CGRect clipped = CGRectIsNull(content) ? CGRectNull : CGRectIntersection(content, frame);
+    _contentRect = CGRectIsNull(clipped) ? CGRectZero : CGRectIntegral(clipped);
+  }
+  return self;
+}
+
+/// Windows are [start, end): exactly at a boundary the layer is already hidden.
+- (NSIndexSet *)visibleIndexesAt:(double)seconds
+{
+  NSMutableIndexSet *indexes = [NSMutableIndexSet indexSet];
+  [_layers enumerateObjectsUsingBlock:^(VOLRenderedLayer *layer, NSUInteger idx, BOOL *stop) {
+    if (seconds + kVOLTimeEpsilon >= layer.startSec && seconds < layer.endSec - kVOLTimeEpsilon) {
+      [indexes addIndex:idx];
+    }
+  }];
+  return indexes;
+}
+
+- (nullable UIImage *)renderOverlayForIndexes:(NSIndexSet *)indexes
+{
+  if (indexes.count == 0 || CGRectIsEmpty(_contentRect)) {
     return nil;
   }
-  CALayer *tileLayer = [CALayer layer];
-  tileLayer.contentsScale = 1.0;
-  tileLayer.frame = CGRectMake(0, 0, renderSize.width, renderSize.height);
-  tileLayer.contents = (__bridge id)baked.CGImage;
-  return tileLayer;
+  CGRect content = _contentRect;
+  UIGraphicsImageRenderer *renderer = [[UIGraphicsImageRenderer alloc] initWithSize:content.size
+                                                                              format:VOOverlayCanvasFormat()];
+  return [renderer imageWithActions:^(UIGraphicsImageRendererContext *_Nonnull rendererContext) {
+    // Canvas is UIKit y-down but layer rects are y-up, so each rect flips Y.
+    CGFloat canvasMaxY = CGRectGetMaxY(content);
+    [indexes enumerateIndexesUsingBlock:^(NSUInteger idx, BOOL *stop) {
+      VOLRenderedLayer *layer = self->_layers[idx];
+      CGRect canvasRect = CGRectMake(layer.rect.origin.x - content.origin.x,
+                                     canvasMaxY - CGRectGetMaxY(layer.rect),
+                                     layer.rect.size.width,
+                                     layer.rect.size.height);
+      // Each layer is its own pre-rendered bitmap, so opacity applies to it as a group.
+      [layer.image drawInRect:canvasRect blendMode:kCGBlendModeNormal alpha:layer.opacity];
+    }];
+  }];
 }
 
-#pragma mark - Building the layer tree
-
-/// Array order maps directly to sublayer order: index 0 = bottom, last = top.
-static CALayer *VOLBuildLayerTree(NSArray<VOLLayer *> *layers, CGSize renderSize, double durationSec, CALayer **outVideoLayer)
+- (void)drawIntoPixelBuffer:(CVPixelBufferRef)pixelBuffer atTime:(double)seconds
 {
-  CGRect frame = CGRectMake(0.0, 0.0, renderSize.width, renderSize.height);
-
-  CALayer *parentLayer = [CALayer layer];
-  parentLayer.frame = frame;
-  parentLayer.geometryFlipped = NO;
-
-  CALayer *videoLayer = [CALayer layer];
-  videoLayer.frame = frame;
-  [parentLayer addSublayer:videoLayer];
-
-  CALayer *overlayRoot = [CALayer layer];
-  overlayRoot.frame = frame;
-  overlayRoot.masksToBounds = NO;
-  [parentLayer addSublayer:overlayRoot];
-
-  for (VOLLayer *layer in layers) {
-    CALayer *_Nullable built = layer.tile != nil ? VOLBuildTileLayer(layer, renderSize)
-        : layer.isText                           ? VOLBuildTextLayer(layer, renderSize)
-                                                  : VOLBuildImageLayer(layer, renderSize);
-    if (built == nil) {
-      continue; // decode failure or empty text, already logged where relevant
-    }
-
-    double clampedStart = MAX(layer.startSec, 0.0);
-    double clampedEnd = MIN(layer.hasEndSec ? layer.endSec : durationSec, durationSec);
-    if (clampedEnd <= clampedStart + kVOLTimeEpsilon) {
-      built.opacity = 0.0; // window never overlaps the clip
-    } else if (clampedStart <= kVOLTimeEpsilon && clampedEnd >= durationSec - kVOLTimeEpsilon) {
-      built.opacity = layer.opacity; // visible for the whole clip, no animation needed
-    } else {
-      built.opacity = 0.0;
-      CAKeyframeAnimation *animation = VOLOpacityAnimation(clampedStart, clampedEnd, durationSec, layer.opacity);
-      [built addAnimation:animation forKey:@"vol_opacity"];
-    }
-
-    [overlayRoot addSublayer:built];
+  NSIndexSet *visible = [self visibleIndexesAt:seconds];
+  if (_cachedVisible == nil || ![visible isEqualToIndexSet:_cachedVisible]) {
+    _cachedVisible = visible;
+    _cachedOverlay = [self renderOverlayForIndexes:visible];
   }
-
-  if (outVideoLayer != NULL) {
-    *outVideoLayer = videoLayer;
+  CGImageRef overlay = _cachedOverlay.CGImage;
+  if (overlay != NULL) {
+    VOBlitImageIntoPixelBuffer(pixelBuffer, overlay, _contentRect);
   }
-  return parentLayer;
 }
+
+@end
 
 #pragma mark - VideoLayerBurner
 
@@ -1004,7 +1031,8 @@ static CALayer *VOLBuildLayerTree(NSArray<VOLLayer *> *layers, CGSize renderSize
     return;
   }
 
-  CGFloat cropAspectRatio = VOLParseCropAspectRatio(optionsJson);
+  CGFloat cropAspectRatio = VOLParsePositiveOption(optionsJson, @"cropAspectRatio");
+  double maxBitRate = VOLParsePositiveOption(optionsJson, @"maxBitRate");
 
   NSURL *inputURL = [NSURL fileURLWithPath:inputPath];
   AVURLAsset *asset = [AVURLAsset URLAssetWithURL:inputURL
@@ -1028,6 +1056,7 @@ static CALayer *VOLBuildLayerTree(NSArray<VOLLayer *> *layers, CGSize renderSize
                           videoTrack:videoTrack
                               layers:layers
                      cropAspectRatio:cropAspectRatio
+                          maxBitRate:maxBitRate
                           outputPath:destPath
                           completion:completion];
                  });
@@ -1038,6 +1067,7 @@ static CALayer *VOLBuildLayerTree(NSArray<VOLLayer *> *layers, CGSize renderSize
          videoTrack:(AVAssetTrack *)videoTrack
              layers:(NSArray<VOLLayer *> *)layers
     cropAspectRatio:(CGFloat)cropAspectRatio
+         maxBitRate:(double)maxBitRate
          outputPath:(NSString *)outputPath
          completion:(VideoOverlayBurnCompletion)completion
 {
@@ -1048,145 +1078,24 @@ static CALayer *VOLBuildLayerTree(NSArray<VOLLayer *> *layers, CGSize renderSize
     return;
   }
 
-  CGSize naturalSize = videoTrack.naturalSize;
-  CGAffineTransform preferredTransform = videoTrack.preferredTransform;
-  CGRect naturalRect = CGRectMake(0.0, 0.0, naturalSize.width, naturalSize.height);
-  CGRect displayRect = CGRectApplyAffineTransform(naturalRect, preferredTransform);
-  CGAffineTransform correctedTransform = CGAffineTransformConcat(
-      preferredTransform, CGAffineTransformMakeTranslation(-displayRect.origin.x, -displayRect.origin.y));
-
-  CGSize displaySize = CGSizeMake(VOLEvenSize(displayRect.size.width), VOLEvenSize(displayRect.size.height));
-  CGSize renderSize = VOLCropSize(displaySize, cropAspectRatio);
-  if (!(renderSize.width > 0.0) || !(renderSize.height > 0.0)) {
+  CGSize renderSize = [VOBurnPipeline renderSizeForVideoTrack:videoTrack cropAspectRatio:cropAspectRatio];
+  if (CGSizeEqualToSize(renderSize, CGSizeZero)) {
     completion(nil, VOLMakeError(VideoOverlayErrorNoVideoTrack, @"The video track has an invalid natural size."));
     return;
   }
 
-  correctedTransform = CGAffineTransformConcat(
-      correctedTransform,
-      CGAffineTransformMakeTranslation(floor((renderSize.width - displaySize.width) / 2.0),
-                                       floor((renderSize.height - displaySize.height) / 2.0)));
+  VOLOverlayRenderer *overlay =
+      [[VOLOverlayRenderer alloc] initWithLayers:VOLRenderLayers(layers, renderSize, durationSec) renderSize:renderSize];
 
-  __block CALayer *videoLayer = nil;
-  __block CALayer *parentLayer = nil;
-  [CATransaction begin];
-  [CATransaction setDisableActions:YES];
-  parentLayer = VOLBuildLayerTree(layers, renderSize, durationSec, &videoLayer);
-  [CATransaction commit];
-
-  int32_t fps = (int32_t)lround((double)videoTrack.nominalFrameRate);
-  if (fps <= 0 || fps > 240) {
-    fps = 30;
-  }
-
-  AVMutableVideoCompositionLayerInstruction *layerInstruction =
-      [AVMutableVideoCompositionLayerInstruction videoCompositionLayerInstructionWithAssetTrack:videoTrack];
-  [layerInstruction setTransform:correctedTransform atTime:kCMTimeZero];
-
-  AVMutableVideoCompositionInstruction *instruction = [AVMutableVideoCompositionInstruction videoCompositionInstruction];
-  instruction.timeRange = CMTimeRangeMake(kCMTimeZero, duration);
-  instruction.layerInstructions = @[ layerInstruction ];
-
-  AVMutableVideoComposition *videoComposition = [AVMutableVideoComposition videoComposition];
-  videoComposition.renderSize = renderSize;
-  videoComposition.frameDuration = CMTimeMake(1, fps);
-  videoComposition.instructions = @[ instruction ];
-  videoComposition.animationTool =
-      [AVVideoCompositionCoreAnimationTool videoCompositionCoreAnimationToolWithPostProcessingAsVideoLayer:videoLayer
-                                                                                                  inLayer:parentLayer];
-
-  videoComposition.colorPrimaries = AVVideoColorPrimaries_ITU_R_709_2;
-  videoComposition.colorTransferFunction = AVVideoTransferFunction_ITU_R_709_2;
-  videoComposition.colorYCbCrMatrix = AVVideoYCbCrMatrix_ITU_R_709_2;
-
-  NSError *prepareError = nil;
-  if (![self prepareOutputPath:outputPath error:&prepareError]) {
-    completion(nil, prepareError);
-    return;
-  }
-
-  AVAssetExportSession *exportSession = [[AVAssetExportSession alloc] initWithAsset:asset
-                                                                         presetName:AVAssetExportPresetHighestQuality];
-  if (exportSession == nil) {
-    completion(nil, VOLMakeError(VideoOverlayErrorExportSetupFailed,
-                                 @"Cannot create AVAssetExportSession with AVAssetExportPresetHighestQuality."));
-    return;
-  }
-  if (![exportSession.supportedFileTypes containsObject:AVFileTypeMPEG4]) {
-    completion(nil, VOLMakeError(VideoOverlayErrorExportSetupFailed, @"This asset cannot be exported as MPEG-4."));
-    return;
-  }
-
-  exportSession.outputURL = [NSURL fileURLWithPath:outputPath];
-  exportSession.outputFileType = AVFileTypeMPEG4;
-  exportSession.videoComposition = videoComposition;
-  exportSession.shouldOptimizeForNetworkUse = YES;
-
-  [exportSession exportAsynchronouslyWithCompletionHandler:^{
-    AVAssetExportSessionStatus status = exportSession.status;
-    NSError *exportError = exportSession.error;
-
-    switch (status) {
-      case AVAssetExportSessionStatusCompleted:
-        completion(outputPath, nil);
-        break;
-
-      case AVAssetExportSessionStatusCancelled:
-        completion(nil, VOLMakeError(VideoOverlayErrorExportCancelled, @"Video export was cancelled."));
-        break;
-
-      default: {
-        NSString *message = [NSString
-            stringWithFormat:@"Video export failed (status %ld): %@", (long)status,
-                             exportError.localizedDescription ?: @"unknown error"];
-        NSMutableDictionary *userInfo = [NSMutableDictionary dictionary];
-        userInfo[NSLocalizedDescriptionKey] = message;
-        if (exportError != nil) {
-          userInfo[NSUnderlyingErrorKey] = exportError;
-        }
-        completion(nil, [NSError errorWithDomain:VideoOverlayErrorDomain
-                                            code:VideoOverlayErrorExportFailed
-                                        userInfo:userInfo]);
-        break;
-      }
-    }
-  }];
-}
-
-/// Creates the parent directory and removes the old output file; never touches the source.
-+ (BOOL)prepareOutputPath:(NSString *)outputPath error:(NSError **)outError
-{
-  NSFileManager *fileManager = [NSFileManager defaultManager];
-  NSString *directory = [outputPath stringByDeletingLastPathComponent];
-
-  if (directory.length > 0 && ![fileManager fileExistsAtPath:directory]) {
-    NSError *createError = nil;
-    if (![fileManager createDirectoryAtPath:directory
-                withIntermediateDirectories:YES
-                                 attributes:nil
-                                      error:&createError]) {
-      if (outError) {
-        *outError = VOLMakeError(VideoOverlayErrorOutputNotWritable,
-                                 [NSString stringWithFormat:@"Cannot create output directory %@: %@", directory,
-                                                            createError.localizedDescription]);
-      }
-      return NO;
-    }
-  }
-
-  if ([fileManager fileExistsAtPath:outputPath]) {
-    NSError *removeError = nil;
-    if (![fileManager removeItemAtPath:outputPath error:&removeError]) {
-      if (outError) {
-        *outError = VOLMakeError(VideoOverlayErrorOutputNotWritable,
-                                 [NSString stringWithFormat:@"Cannot remove existing output file %@: %@", outputPath,
-                                                            removeError.localizedDescription]);
-      }
-      return NO;
-    }
-  }
-
-  return YES;
+  [VOBurnPipeline burnAsset:asset
+                 videoTrack:videoTrack
+            cropAspectRatio:cropAspectRatio
+                 maxBitRate:maxBitRate
+                 outputPath:outputPath
+                     drawer:^(CVPixelBufferRef pixelBuffer, double seconds) {
+                       [overlay drawIntoPixelBuffer:pixelBuffer atTime:seconds];
+                     }
+                 completion:completion];
 }
 
 @end

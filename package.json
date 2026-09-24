@@ -1,6 +1,6 @@
 {
   "name": "react-native-video-burn-overlay",
-  "version": "0.0.6",
+  "version": "0.0.7",
   "description": "Burn text or custom image overlays permanently into recorded video pixels using native platform APIs only (AVFoundation on iOS, MediaCodec + OpenGL ES on Android).",
   "main": "./lib/module/index.js",
   "types": "./lib/typescript/src/index.d.ts",
