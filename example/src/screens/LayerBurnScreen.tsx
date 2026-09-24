@@ -101,7 +101,7 @@ export default function LayerBurnScreen({
     }
   }, []);
 
-  // Image sources may still be an http:// dev-server URL; native can only decode a real file.
+  // Image sources may be http:// dev-server URLs; native decodes only real files.
   const resolveLayerForNative = useCallback(
     async (layer: OverlayLayer): Promise<OverlayLayer> => {
       if (layer.type !== 'image') {

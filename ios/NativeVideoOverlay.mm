@@ -1,15 +1,8 @@
-//
-//  NativeVideoOverlay.mm
-//  react-native-video-overlay
-//
-//  TurboModule (New Architecture) bridge for `NativeVideoOverlay`.
-//
-//  WHY NOT SWIFT: static use_frameworks! makes mixing Swift/Obj-C++ create a fragile circular header dependency.
-//
-//  WHY NO .h FILE: use_frameworks! would expose the Obj-C++-only codegen header as plain Obj-C.
-//
+// No Swift or .h: use_frameworks! breaks Swift/Obj-C++ mixing and exposes codegen headers as Obj-C.
 
 #import <Foundation/Foundation.h>
+#import <React/RCTInvalidating.h>
+#import <UIKit/UIKit.h>
 
 // Codegen header path differs by RN version/pod; try each form, don't depend on just one.
 #if __has_include(<VideoOverlaySpec/VideoOverlaySpec.h>)
@@ -28,7 +21,7 @@
 #import "VideoLayerBurner.h"
 
 /// Class name determines JS module name via RCT_EXPORT_MODULE(); must be VideoOverlay to match spec.
-@interface VideoOverlay : NSObject <NativeVideoOverlaySpec>
+@interface VideoOverlay : NSObject <NativeVideoOverlaySpec, RCTInvalidating>
 @end
 
 @implementation VideoOverlay
@@ -84,6 +77,20 @@ RCT_EXPORT_MODULE()
                                     }
                                     resolve(resultPath);
                                   }];
+}
+
+- (void)setKeepScreenOn:(BOOL)enabled
+{
+  // idleTimerDisabled is a UIKit property, so it must change on the main queue.
+  dispatch_async(dispatch_get_main_queue(), ^{
+    [UIApplication sharedApplication].idleTimerDisabled = enabled;
+  });
+}
+
+- (void)invalidate
+{
+  // JS reload skips effect cleanup; turn it off or the screen stays awake forever.
+  [self setKeepScreenOn:NO];
 }
 
 - (std::shared_ptr<facebook::react::TurboModule>)getTurboModule:

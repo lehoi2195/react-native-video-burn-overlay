@@ -6,7 +6,7 @@ import { formatCoordinateLine, formatTimeLine } from './useLocationStamp';
 import type { GpsSample } from './useLocationStamp';
 import { stripFileScheme } from './videoPaths';
 
-// Native only needs endSec >= actual duration; we don't track it, so use a huge sentinel.
+// Native only needs endSec >= duration; untracked here, so use a huge sentinel.
 export const CUE_END_SEC_SENTINEL = 24 * 60 * 60;
 
 /** Builds a text cue from live settings state, matching what the panel and preview show. */
@@ -67,7 +67,7 @@ function buildStampLines(
   return lines;
 }
 
-/** One cue per second so the clock ticks and the GPS trail moves in the burned video. */
+/** One cue per second so the clock ticks and the GPS trail moves. */
 export function buildLocationStampCues(
   samples: readonly GpsSample[],
   startedAt: Date,

@@ -1,11 +1,4 @@
-//
-//  VideoOverlayBurner.h
-//  react-native-video-overlay
-//
-//  Burns a multi-line text overlay permanently into a video, using only Apple's system APIs.
-//
-//  NOTE: use_frameworks! folds public headers into the umbrella as Obj-C; never #import C++ here.
-//
+// Burns text/image cues into a video. Never #import C++ here: use_frameworks! exposes it as Obj-C.
 
 #import <Foundation/Foundation.h>
 
@@ -24,9 +17,9 @@ typedef NS_ERROR_ENUM(VideoOverlayErrorDomain, VideoOverlayErrorCode) {
   VideoOverlayErrorNoVideoTrack = 4,
   /// Could not prepare the output path (create directory, remove old file, etc.).
   VideoOverlayErrorOutputNotWritable = 5,
-  /// Could not initialize AVAssetExportSession with the requested preset / fileType.
+  /// Could not set up the reader/writer pipeline (tracks, encoder settings, output file).
   VideoOverlayErrorExportSetupFailed = 6,
-  /// AVAssetExportSession ran but failed.
+  /// The reader/writer pipeline ran but failed.
   VideoOverlayErrorExportFailed = 7,
   /// Export was cancelled.
   VideoOverlayErrorExportCancelled = 8,
@@ -40,7 +33,6 @@ typedef void (^VideoOverlayBurnCompletion)(NSString *_Nullable outputPath, NSErr
 @interface VideoOverlayBurner : NSObject
 
 /// Burns a text overlay into the pixels of a video.
-///
 /// @param videoPath  Absolute path to the source video (no file:// prefix); never modified or deleted.
 /// @param outputPath Path to write the result to (.mp4); removed first if it already exists.
 /// @param cuesJson   JSON array of cues; each uses lines or imagePath exclusively, imagePath takes priority.

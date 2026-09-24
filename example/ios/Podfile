@@ -6,11 +6,7 @@ require "#{ws_dir}/node_modules/react-native-test-app/test_app.rb"
 
 workspace 'VideoOverlayExample.xcworkspace'
 
-# Info.plist keys must be injected via post_install since RNTA regenerates Info.plist fresh every pod install.
-#
-# IMPORTANT: edit the real Info.plist file directly; RNTA never synthesizes INFOPLIST_KEY_* build settings.
-#
-# Pass logic via :post_install option; a second post_install block would silently replace RNTA's own hook.
+# Inject Info.plist keys via RNTA's :post_install option; a second post_install block replaces its hook.
 usage_description_post_install = lambda do |installer|
   info_plist_path = File.join(__dir__, '..', 'node_modules', '.generated', 'ios', 'Info.plist')
   unless File.exist?(info_plist_path)
@@ -21,8 +17,7 @@ usage_description_post_install = lambda do |installer|
     'NSCameraUsageDescription' => 'This app needs camera access to record video for the overlay demo.',
     'NSMicrophoneUsageDescription' => 'This app needs microphone access to record audio with your video.',
     'NSPhotoLibraryAddUsageDescription' => 'This app needs access to save the burned video to your photo library.',
-    # PHPhotoLibrary's addOnly authorization path still probes this general key's mere presence; without
-    # it the app hard-crashes even though we never read the library, only write via saveAsset.
+    # addOnly authorization still requires this key's presence, or the app crashes.
     'NSPhotoLibraryUsageDescription' => 'This app needs access to save the burned video to your photo library.',
     'NSLocationWhenInUseUsageDescription' => 'This app needs your location to stamp it onto the recorded video.',
   }.each do |key, value|

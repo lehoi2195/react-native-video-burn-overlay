@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { createThumbnail } from 'react-native-create-thumbnail';
 
-/** Extracts a static frame from a local video path; empty string while pending or on failure. */
+/** Extracts a frame from a local video; empty string while pending or on failure. */
 export function useVideoThumbnail(videoPath: string): string {
   const [uri, setUri] = useState('');
 

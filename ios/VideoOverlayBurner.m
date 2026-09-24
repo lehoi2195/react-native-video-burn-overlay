@@ -1,13 +1,9 @@
-//
-//  VideoOverlayBurner.m
-//  react-native-video-overlay
-//
-
 #import "VideoOverlayBurner.h"
 
 #import <AVFoundation/AVFoundation.h>
-#import <QuartzCore/QuartzCore.h>
 #import <UIKit/UIKit.h>
+
+#import "VOBurnPipeline.h"
 
 NSErrorDomain const VideoOverlayErrorDomain = @"VideoOverlayErrorDomain";
 
@@ -38,7 +34,7 @@ static const CGFloat kVOMaxFontScale = 3.0;
 /// Sentinel meaning fontSize not set; 0 is safe since VOParseStyle never lets non-positive values through.
 static const CGFloat kVOFontSizeUnset = 0.0;
 
-/// Sentinel meaning strokeWidth not set; -1 since 0 is itself a valid value (disables the stroke).
+/// Sentinel for unset strokeWidth; -1 because 0 is valid (disables the stroke).
 static const CGFloat kVOStrokeWidthUnset = -1.0;
 
 /// Tolerance used when comparing timestamps (seconds).
@@ -70,7 +66,7 @@ static const double kVOTimeEpsilon = 1e-4;
 }
 @end
 
-/// A contiguous time range; deliberately mutable, a scratch buffer that never escapes layer-building.
+/// A contiguous time range; deliberately mutable, a scratch buffer that never escapes overlay setup.
 @interface VOInterval : NSObject
 @property (nonatomic) double start;
 @property (nonatomic) double end;
@@ -79,7 +75,7 @@ static const double kVOTimeEpsilon = 1e-4;
 @implementation VOInterval
 @end
 
-/// A run: one text string at one slot, mapping 1-to-1 onto a CATextLayer.
+/// A run: one text string at one slot, drawn as one overlay line.
 @interface VOTextRun : NSObject
 @property (nonatomic) NSUInteger slot;   // 0 = the bottommost line
 @property (nonatomic, copy) NSString *text;
@@ -170,10 +166,12 @@ typedef NS_ENUM(NSInteger, VOFontWeight) {
 @property (nonatomic) CGFloat customX;
 @property (nonatomic) CGFloat customY;
 @property (nonatomic) CGFloat marginRatio;
-/// Alpha multiplier for text/image opacity animations; real CALayer opacity, not a JS approximation.
+/// Alpha multiplier applied to each text line and image on its own, like per-layer opacity.
 @property (nonatomic) CGFloat opacity;
 /// Width/height the output is centre-cropped to; 0 keeps the source's own framing.
 @property (nonatomic) CGFloat cropAspectRatio;
+/// Video bitrate cap in bits/s (e.g. from an upload size limit); 0 means no cap.
+@property (nonatomic) double maxBitRate;
 @end
 
 @implementation VOStyle
@@ -186,29 +184,6 @@ static NSError *VOMakeError(VideoOverlayErrorCode code, NSString *message)
   return [NSError errorWithDomain:VideoOverlayErrorDomain
                              code:code
                          userInfo:@{NSLocalizedDescriptionKey : message ?: @"Unknown video overlay error"}];
-}
-
-/// H.264/HEVC require even dimensions. Round to the nearest even number, minimum 2.
-static CGFloat VOEvenSize(CGFloat value)
-{
-  CGFloat rounded = round(value / 2.0) * 2.0;
-  return MAX(rounded, 2.0);
-}
-
-/// Centre-crops to `ratio` by trimming only; never pads or scales the source up.
-static CGSize VOCropSize(CGSize size, CGFloat ratio)
-{
-  if (!(ratio > 0.0) || !(size.width > 0.0) || !(size.height > 0.0)) {
-    return size;
-  }
-  CGFloat current = size.width / size.height;
-  if (current > ratio) {
-    return CGSizeMake(VOEvenSize(MIN(size.height * ratio, size.width)), size.height);
-  }
-  if (current < ratio) {
-    return CGSizeMake(size.width, VOEvenSize(MIN(size.width / ratio, size.height)));
-  }
-  return size;
 }
 
 #pragma mark - Parse cues
@@ -459,6 +434,7 @@ static VOStyle *VOParseStyle(NSString *_Nullable styleJson)
   style.marginRatio = kVOMarginRatio;
   style.opacity = 1.0;
   style.cropAspectRatio = 0.0;
+  style.maxBitRate = 0.0;
 
   if (styleJson.length == 0) {
     return style;
@@ -568,12 +544,21 @@ static VOStyle *VOParseStyle(NSString *_Nullable styleJson)
     }
   }
 
+  id rawMaxBitRate = dict[@"maxBitRate"];
+  if ([rawMaxBitRate isKindOfClass:[NSNumber class]]) {
+    double value = [(NSNumber *)rawMaxBitRate doubleValue];
+    // Must be finite and positive; anything else means no cap.
+    if (isfinite(value) && value > 0.0) {
+      style.maxBitRate = value;
+    }
+  }
+
   return style;
 }
 
 #pragma mark - Grouping cues into text runs
 
-// Groups by (slot, text) into shared CATextLayers instead of one-per-cue, cutting layer count ~3x.
+// Groups by (slot, text) so each distinct line is laid out once.
 static NSArray<VOTextRun *> *VOBuildTextRuns(NSArray<VOCue *> *cues, double durationSec)
 {
   NSMutableDictionary<NSString *, VOTextRun *> *runsByKey = [NSMutableDictionary dictionary];
@@ -663,7 +648,7 @@ static NSArray<VOImageRun *> *VOBuildImageRuns(NSArray<VOCue *> *cues, double du
   return orderedRuns;
 }
 
-#pragma mark - Building the layer tree
+#pragma mark - Text attributes
 
 /// Maps our 100-900 CSS-style weight scale onto the standard UIFont.Weight named constants.
 static UIFontWeight VOUIFontWeightFromVOFontWeight(VOFontWeight weight)
@@ -696,7 +681,6 @@ static NSDictionary<NSAttributedStringKey, id> *VOTextAttributes(CGFloat fontSiz
     font = [UIFont systemFontOfSize:fontSize weight:weight];
   }
 
-  // Considered a CALayer shadow instead, but rejected: shadowPath-less shadows recompute every frame, slowing export.
   NSMutableDictionary<NSAttributedStringKey, id> *attributes = [@{
     NSFontAttributeName : font,
     NSForegroundColorAttributeName : style.textColor,
@@ -712,56 +696,6 @@ static NSDictionary<NSAttributedStringKey, id> *VOTextAttributes(CGFloat fontSiz
   }
 
   return attributes;
-}
-
-/// Builds an opacity keyframe animation from intervals; returns nil if the clip has full coverage.
-static CAKeyframeAnimation *_Nullable VOOpacityAnimation(NSArray<VOInterval *> *intervals,
-                                                          double durationSec,
-                                                          CGFloat maxOpacity)
-{
-  if (intervals.count == 1) {
-    VOInterval *only = intervals.firstObject;
-    if (only.start <= kVOTimeEpsilon && only.end >= durationSec - kVOTimeEpsilon) {
-      return nil; // e.g. the address line: visible for the whole clip -> no animation needed
-    }
-  }
-
-  NSMutableArray<NSNumber *> *keyTimes = [NSMutableArray array];
-  NSMutableArray<NSNumber *> *values = [NSMutableArray array];
-  __block double lastKeyTime = -1.0;
-
-  // keyTimes must strictly increase from 0.0; overwrite the last keyframe instead of inserting a duplicate.
-  void (^addKeyframe)(double, double) = ^(double normalizedTime, double opacity) {
-    double clamped = MIN(MAX(normalizedTime, 0.0), 1.0);
-    if (keyTimes.count > 0 && clamped <= lastKeyTime) {
-      values[values.count - 1] = @(opacity);
-      return;
-    }
-    lastKeyTime = clamped;
-    [keyTimes addObject:@(clamped)];
-    [values addObject:@(opacity)];
-  };
-
-  addKeyframe(0.0, 0.0);
-  for (VOInterval *interval in intervals) {
-    addKeyframe(interval.start / durationSec, maxOpacity);
-    addKeyframe(interval.end / durationSec, 0.0);
-  }
-  if (lastKeyTime < 1.0) {
-    addKeyframe(1.0, 0.0);
-  }
-
-  CAKeyframeAnimation *animation = [CAKeyframeAnimation animationWithKeyPath:@"opacity"];
-  // Discrete mode: value holds steady, no interpolation, so text snaps on/off instead of fading.
-  animation.calculationMode = kCAAnimationDiscrete;
-  animation.keyTimes = keyTimes;
-  animation.values = values;
-  animation.duration = durationSec;
-  // beginTime=0 gets replaced by CACurrentMediaTime(); use AVCoreAnimationBeginTimeAtZero for video-timeline sync.
-  animation.beginTime = AVCoreAnimationBeginTimeAtZero;
-  animation.removedOnCompletion = NO;
-  animation.fillMode = kCAFillModeForwards;
-  return animation;
 }
 
 #pragma mark - Anchor position
@@ -814,7 +748,7 @@ static VOVerticalAlign VOPositionVertical(VOPosition position, CGFloat customY)
   return VOVerticalBottom;
 }
 
-/// X of block's bottom-left; for text, real alignment comes from CATextLayer.alignmentMode, not this x.
+/// X of block's bottom-left; text alignment itself comes from the paragraph style.
 static CGFloat VOAnchorX(VOStyle *style, CGFloat margin, CGFloat contentWidth, CGFloat renderWidth)
 {
   if (style.position == VOPositionCustom) {
@@ -828,7 +762,7 @@ static CGFloat VOAnchorX(VOStyle *style, CGFloat margin, CGFloat contentWidth, C
   }
 }
 
-/// Y for a single block; custom position converts top-down customY into Core Animation's bottom-up Y.
+/// Y for a single block; custom position converts top-down customY into the frame's bottom-up Y.
 static CGFloat VOAnchorYForBlock(VOStyle *style, CGFloat margin, CGFloat blockHeight, CGFloat renderHeight)
 {
   if (style.position == VOPositionCustom) {
@@ -842,144 +776,233 @@ static CGFloat VOAnchorYForBlock(VOStyle *style, CGFloat margin, CGFloat blockHe
   }
 }
 
-/// Y for one text line at slot; maxSlotIndex must be computed dynamically or lines overlap/disappear.
-static CGFloat VOAnchorYForSlot(VOStyle *style,
-                                CGFloat margin,
-                                NSUInteger slot,
-                                NSUInteger maxSlotIndex,
-                                CGFloat lineHeight,
-                                CGFloat boxHeight,
-                                CGFloat renderHeight)
+static NSTextAlignment VOTextAlignmentForStyle(VOStyle *style)
 {
-  CGFloat totalBlockHeight = (CGFloat)maxSlotIndex * lineHeight + boxHeight;
-  CGFloat blockBottom = VOAnchorYForBlock(style, margin, totalBlockHeight, renderHeight);
-  return blockBottom + (CGFloat)slot * lineHeight;
+  switch (VOPositionHorizontal(style.position, style.customX)) {
+    case VOHorizontalCenter: return NSTextAlignmentCenter;
+    case VOHorizontalRight: return NSTextAlignmentRight;
+    case VOHorizontalLeft: default: return NSTextAlignmentLeft;
+  }
 }
 
-/// Builds the layer tree: parentLayer holds videoLayer, text layers, and image layers.
-/// outVideoLayer receives the layer AVFoundation will render the video into.
-static CALayer *VOBuildLayerTree(NSArray<VOTextRun *> *textRuns,
-                                 NSArray<VOImageRun *> *imageRuns,
-                                 CGSize renderSize,
-                                 double durationSec,
-                                 VOStyle *style,
-                                 CALayer **outVideoLayer)
+#pragma mark - Overlay renderer
+
+/// Intervals are [start, end): exactly at a boundary the next cue wins, like discrete keyframes.
+static BOOL VOIsVisibleAt(NSArray<VOInterval *> *intervals, double seconds)
 {
-  // fontSize (when set) bypasses the auto formula and fontScale entirely, avoiding confusing double-scaling.
-  CGFloat fontSize;
-  if (style.fontSize != kVOFontSizeUnset) {
-    fontSize = style.fontSize;
-  } else {
-    fontSize = MAX(kVOMinFontSize, floor(MIN(renderSize.width, renderSize.height) * kVOFontSizeRatio));
-    fontSize = fontSize * style.fontScale;
-  }
-  CGFloat lineHeight = ceil(fontSize * kVOLineHeightRatio);
-  CGFloat boxHeight = ceil(fontSize * kVOBoxHeightRatio);
-  // Use style.marginRatio, not the constant directly, so JS's marginRatio field actually takes effect.
-  CGFloat margin = floor(renderSize.width * style.marginRatio);
-  CGFloat textWidth = MAX(renderSize.width - (margin * 2.0), 1.0);
-
-  CGRect frame = CGRectMake(0.0, 0.0, renderSize.width, renderSize.height);
-
-  CALayer *parentLayer = [CALayer layer];
-  parentLayer.frame = frame;
-  // Core Animation origin is bottom-left with y up; keep geometryFlipped=NO to match render space.
-  parentLayer.geometryFlipped = NO;
-
-  CALayer *videoLayer = [CALayer layer];
-  videoLayer.frame = frame;
-  [parentLayer addSublayer:videoLayer];
-
-  CALayer *overlayRoot = [CALayer layer];
-  overlayRoot.frame = frame;
-  overlayRoot.masksToBounds = NO;
-  [parentLayer addSublayer:overlayRoot];
-
-  NSDictionary<NSAttributedStringKey, id> *attributes = VOTextAttributes(fontSize, style);
-
-  // Max line count computed dynamically from textRuns, never hardcoded, to avoid a past overlap/drop bug.
-  NSUInteger maxSlotIndex = 0;
-  for (VOTextRun *run in textRuns) {
-    maxSlotIndex = MAX(maxSlotIndex, run.slot);
-  }
-
-  for (VOTextRun *run in textRuns) {
-    CATextLayer *textLayer = [CATextLayer layer];
-    // renderSize is in video pixels, not screen points, so contentsScale must be 1.0.
-    textLayer.contentsScale = 1.0;
-    // CATextLayer draws text flush against its top edge; consistent boxHeight keeps line spacing exact.
-    CGFloat x = VOAnchorX(style, margin, textWidth, renderSize.width);
-    CGFloat y = VOAnchorYForSlot(style, margin, run.slot, maxSlotIndex, lineHeight, boxHeight, renderSize.height);
-    textLayer.frame = CGRectMake(x, y, textWidth, boxHeight);
-    // Align text within the box so it visually hugs the correct edge or center.
-    switch (VOPositionHorizontal(style.position, style.customX)) {
-      case VOHorizontalLeft:
-        textLayer.alignmentMode = kCAAlignmentLeft;
-        break;
-      case VOHorizontalCenter:
-        textLayer.alignmentMode = kCAAlignmentCenter;
-        break;
-      case VOHorizontalRight:
-        textLayer.alignmentMode = kCAAlignmentRight;
-        break;
+  for (VOInterval *interval in intervals) {
+    if (seconds + kVOTimeEpsilon >= interval.start && seconds < interval.end - kVOTimeEpsilon) {
+      return YES;
     }
-    textLayer.wrapped = NO;
-    textLayer.truncationMode = kCATruncationEnd;
-    textLayer.string = [[NSAttributedString alloc] initWithString:run.text attributes:attributes];
-
-    CAKeyframeAnimation *animation = VOOpacityAnimation(run.intervals, durationSec, style.opacity);
-    if (animation == nil) {
-      textLayer.opacity = style.opacity;
-    } else {
-      textLayer.opacity = 0.0;
-      [textLayer addAnimation:animation forKey:@"vo_opacity"];
-    }
-
-    [overlayRoot addSublayer:textLayer];
   }
-
-  // Images draw on top of text (fixed z-order) since images are usually primary content.
-  for (VOImageRun *run in imageRuns) {
-    UIImage *image = [UIImage imageWithContentsOfFile:run.imagePath];
-    CGImageRef cgImage = image.CGImage;
-    if (image == nil || cgImage == NULL) {
-      // Skip unreadable/malformed images safely, without crashing or blocking other cues.
-      NSLog(@"[VideoOverlayBurner] Skipping image cue that could not be read at path: %@", run.imagePath);
-      continue;
-    }
-
-    // Use CGImageGetWidth/Height for true pixel size (UIImage.size is a scaled point-size); no scaling here.
-    CGFloat imageWidth = (CGFloat)CGImageGetWidth(cgImage);
-    CGFloat imageHeight = (CGFloat)CGImageGetHeight(cgImage);
-    if (!(imageWidth > 0.0) || !(imageHeight > 0.0)) {
-      NSLog(@"[VideoOverlayBurner] Skipping image cue with an invalid size: %@", run.imagePath);
-      continue;
-    }
-
-    CALayer *imageLayer = [CALayer layer];
-    imageLayer.contentsScale = 1.0;
-    CGFloat x = VOAnchorX(style, margin, imageWidth, renderSize.width);
-    CGFloat y = VOAnchorYForBlock(style, margin, imageHeight, renderSize.height);
-    imageLayer.frame = CGRectMake(x, y, imageWidth, imageHeight);
-    // __bridge: CALayer only references this CGImageRef, no ARC ownership transfer.
-    imageLayer.contents = (__bridge id)cgImage;
-
-    CAKeyframeAnimation *animation = VOOpacityAnimation(run.intervals, durationSec, style.opacity);
-    if (animation == nil) {
-      imageLayer.opacity = style.opacity;
-    } else {
-      imageLayer.opacity = 0.0;
-      [imageLayer addAnimation:animation forKey:@"vo_opacity"];
-    }
-
-    [overlayRoot addSublayer:imageLayer];
-  }
-
-  if (outVideoLayer != NULL) {
-    *outVideoLayer = videoLayer;
-  }
-  return parentLayer;
+  return NO;
 }
+
+/// Blits the overlay into each frame; its bitmap is re-rendered only when visible cues change.
+@interface VOOverlayRenderer : NSObject
+- (instancetype)initWithTextRuns:(NSArray<VOTextRun *> *)textRuns
+                       imageRuns:(NSArray<VOImageRun *> *)imageRuns
+                      renderSize:(CGSize)renderSize
+                           style:(VOStyle *)style;
+- (void)drawIntoPixelBuffer:(CVPixelBufferRef)pixelBuffer atTime:(double)seconds;
+@end
+
+@implementation VOOverlayRenderer {
+  NSArray<VOTextRun *> *_textRuns;
+  NSArray<NSAttributedString *> *_textStrings;
+  // Parallel arrays holding only the images that loaded successfully.
+  NSArray<VOImageRun *> *_imageRuns;
+  NSArray<UIImage *> *_images;
+  NSArray<NSValue *> *_imageRects;
+
+  CGFloat _textWidth;
+  CGFloat _lineHeight;
+  CGFloat _boxHeight;
+  CGFloat _totalBlockHeight;
+  CGFloat _opacity;
+  /// Text block rect in y-up frame coordinates.
+  CGRect _blockRect;
+  /// Union of everything we may draw, in y-up frame coordinates; the only pixels ever touched.
+  CGRect _contentRect;
+
+  NSIndexSet *_cachedVisible;
+  UIImage *_cachedOverlay;
+}
+
+- (instancetype)initWithTextRuns:(NSArray<VOTextRun *> *)textRuns
+                       imageRuns:(NSArray<VOImageRun *> *)imageRuns
+                      renderSize:(CGSize)renderSize
+                           style:(VOStyle *)style
+{
+  if ((self = [super init])) {
+    _textRuns = textRuns;
+    _opacity = style.opacity;
+
+    // fontSize (when set) bypasses the auto formula and fontScale entirely, avoiding confusing double-scaling.
+    CGFloat fontSize;
+    if (style.fontSize != kVOFontSizeUnset) {
+      fontSize = style.fontSize;
+    } else {
+      fontSize = MAX(kVOMinFontSize, floor(MIN(renderSize.width, renderSize.height) * kVOFontSizeRatio));
+      fontSize = fontSize * style.fontScale;
+    }
+    _lineHeight = ceil(fontSize * kVOLineHeightRatio);
+    _boxHeight = ceil(fontSize * kVOBoxHeightRatio);
+    // Use style.marginRatio, not the constant directly, so JS's marginRatio field actually takes effect.
+    CGFloat margin = floor(renderSize.width * style.marginRatio);
+    _textWidth = MAX(renderSize.width - (margin * 2.0), 1.0);
+
+    NSMutableDictionary<NSAttributedStringKey, id> *attributes = [VOTextAttributes(fontSize, style) mutableCopy];
+    NSMutableParagraphStyle *paragraph = [[NSMutableParagraphStyle alloc] init];
+    // Text hugs the anchored edge or centre within its box; overflow truncates.
+    paragraph.alignment = VOTextAlignmentForStyle(style);
+    paragraph.lineBreakMode = NSLineBreakByTruncatingTail;
+    attributes[NSParagraphStyleAttributeName] = paragraph;
+
+    NSMutableArray<NSAttributedString *> *strings = [NSMutableArray arrayWithCapacity:textRuns.count];
+    // Max line count computed dynamically from textRuns, never hardcoded, to avoid a past overlap/drop bug.
+    NSUInteger maxSlotIndex = 0;
+    for (VOTextRun *run in textRuns) {
+      [strings addObject:[[NSAttributedString alloc] initWithString:run.text attributes:attributes]];
+      maxSlotIndex = MAX(maxSlotIndex, run.slot);
+    }
+    _textStrings = strings;
+
+    _totalBlockHeight = (CGFloat)maxSlotIndex * _lineHeight + _boxHeight;
+    _blockRect = CGRectMake(VOAnchorX(style, margin, _textWidth, renderSize.width),
+                            VOAnchorYForBlock(style, margin, _totalBlockHeight, renderSize.height),
+                            _textWidth,
+                            _totalBlockHeight);
+
+    CGRect content = CGRectNull;
+    if (textRuns.count > 0) {
+      // Pad for stroke outlines and glyph overhang past the line boxes.
+      CGFloat pad = ceil(fontSize * 0.5);
+      content = CGRectInset(_blockRect, -pad, -pad);
+    }
+
+    NSMutableArray<VOImageRun *> *loadedRuns = [NSMutableArray array];
+    NSMutableArray<UIImage *> *loadedImages = [NSMutableArray array];
+    NSMutableArray<NSValue *> *loadedRects = [NSMutableArray array];
+    for (VOImageRun *run in imageRuns) {
+      UIImage *image = [UIImage imageWithContentsOfFile:run.imagePath];
+      CGImageRef cgImage = image.CGImage;
+      if (image == nil || cgImage == NULL) {
+        // Skip unreadable/malformed images safely, without crashing or blocking other cues.
+        NSLog(@"[VideoOverlayBurner] Skipping image cue that could not be read at path: %@", run.imagePath);
+        continue;
+      }
+      // Use CGImageGetWidth/Height for true pixel size (UIImage.size is a scaled point-size); no scaling here.
+      CGFloat imageWidth = (CGFloat)CGImageGetWidth(cgImage);
+      CGFloat imageHeight = (CGFloat)CGImageGetHeight(cgImage);
+      if (!(imageWidth > 0.0) || !(imageHeight > 0.0)) {
+        NSLog(@"[VideoOverlayBurner] Skipping image cue with an invalid size: %@", run.imagePath);
+        continue;
+      }
+      CGRect rect = CGRectMake(VOAnchorX(style, margin, imageWidth, renderSize.width),
+                               VOAnchorYForBlock(style, margin, imageHeight, renderSize.height),
+                               imageWidth,
+                               imageHeight);
+      [loadedRuns addObject:run];
+      [loadedImages addObject:[UIImage imageWithCGImage:cgImage scale:1.0 orientation:UIImageOrientationUp]];
+      [loadedRects addObject:[NSValue valueWithCGRect:rect]];
+      content = CGRectUnion(content, rect);
+    }
+    _imageRuns = loadedRuns;
+    _images = loadedImages;
+    _imageRects = loadedRects;
+
+    CGRect frame = CGRectMake(0.0, 0.0, renderSize.width, renderSize.height);
+    CGRect clipped = CGRectIsNull(content) ? CGRectNull : CGRectIntersection(content, frame);
+    _contentRect = CGRectIsNull(clipped) ? CGRectZero : CGRectIntegral(clipped);
+  }
+  return self;
+}
+
+- (NSIndexSet *)visibleIndexesAt:(double)seconds
+{
+  NSMutableIndexSet *indexes = [NSMutableIndexSet indexSet];
+  [_textRuns enumerateObjectsUsingBlock:^(VOTextRun *run, NSUInteger idx, BOOL *stop) {
+    if (VOIsVisibleAt(run.intervals, seconds)) {
+      [indexes addIndex:idx];
+    }
+  }];
+  // Image indexes sit past text runs, so one set captures the whole visible state.
+  NSUInteger offset = _textRuns.count;
+  [_imageRuns enumerateObjectsUsingBlock:^(VOImageRun *run, NSUInteger idx, BOOL *stop) {
+    if (VOIsVisibleAt(run.intervals, seconds)) {
+      [indexes addIndex:offset + idx];
+    }
+  }];
+  return indexes;
+}
+
+- (nullable UIImage *)renderOverlayForIndexes:(NSIndexSet *)indexes
+{
+  if (indexes.count == 0 || CGRectIsEmpty(_contentRect)) {
+    return nil;
+  }
+
+  CGRect content = _contentRect;
+  NSUInteger textCount = _textRuns.count;
+  UIGraphicsImageRenderer *renderer = [[UIGraphicsImageRenderer alloc] initWithSize:content.size
+                                                                              format:VOOverlayCanvasFormat()];
+  return [renderer imageWithActions:^(UIGraphicsImageRendererContext *rendererContext) {
+    CGContextRef context = rendererContext.CGContext;
+    // Canvas is UIKit y-down but layout maths is y-up, so every element flips Y.
+    CGFloat canvasMaxY = CGRectGetMaxY(content);
+
+    // Each line is its own transparency group, so its stroke and fill never double-blend.
+    CGContextSetAlpha(context, self->_opacity);
+    CGFloat blockLeft = CGRectGetMinX(self->_blockRect) - content.origin.x;
+    CGFloat blockTop = canvasMaxY - CGRectGetMaxY(self->_blockRect);
+    [indexes enumerateIndexesInRange:NSMakeRange(0, textCount)
+                             options:0
+                          usingBlock:^(NSUInteger idx, BOOL *stop) {
+                            VOTextRun *run = self->_textRuns[idx];
+                            // Slot 0 is the bottom line; text sits flush against each box's top.
+                            CGFloat lineTop =
+                                self->_totalBlockHeight - ((CGFloat)run.slot * self->_lineHeight + self->_boxHeight);
+                            CGRect box = CGRectMake(blockLeft, blockTop + lineTop, self->_textWidth, self->_boxHeight);
+                            CGContextBeginTransparencyLayer(context, NULL);
+                            [self->_textStrings[idx]
+                                drawWithRect:box
+                                     options:NSStringDrawingUsesLineFragmentOrigin |
+                                             NSStringDrawingTruncatesLastVisibleLine
+                                     context:nil];
+                            CGContextEndTransparencyLayer(context);
+                          }];
+
+    // Images draw on top of text (fixed z-order) since images are usually primary content.
+    [indexes enumerateIndexesInRange:NSMakeRange(textCount, self->_images.count)
+                             options:0
+                          usingBlock:^(NSUInteger idx, BOOL *stop) {
+                            NSUInteger imageIndex = idx - textCount;
+                            CGRect rect = [self->_imageRects[imageIndex] CGRectValue];
+                            CGRect canvasRect = CGRectMake(rect.origin.x - content.origin.x,
+                                                           canvasMaxY - CGRectGetMaxY(rect),
+                                                           rect.size.width,
+                                                           rect.size.height);
+                            [self->_images[imageIndex] drawInRect:canvasRect];
+                          }];
+  }];
+}
+
+- (void)drawIntoPixelBuffer:(CVPixelBufferRef)pixelBuffer atTime:(double)seconds
+{
+  NSIndexSet *visible = [self visibleIndexesAt:seconds];
+  if (_cachedVisible == nil || ![visible isEqualToIndexSet:_cachedVisible]) {
+    _cachedVisible = visible;
+    _cachedOverlay = [self renderOverlayForIndexes:visible];
+  }
+
+  CGImageRef overlay = _cachedOverlay.CGImage;
+  if (overlay != NULL) {
+    VOBlitImageIntoPixelBuffer(pixelBuffer, overlay, _contentRect);
+  }
+}
+
+@end
 
 #pragma mark - VideoOverlayBurner
 
@@ -1097,26 +1120,11 @@ static CALayer *VOBuildLayerTree(NSArray<VOTextRun *> *textRuns,
     return;
   }
 
-  // Apply preferredTransform or portrait video renders sideways with the overlay at the wrong corner.
-  CGSize naturalSize = videoTrack.naturalSize;
-  CGAffineTransform preferredTransform = videoTrack.preferredTransform;
-  CGRect naturalRect = CGRectMake(0.0, 0.0, naturalSize.width, naturalSize.height);
-  CGRect displayRect = CGRectApplyAffineTransform(naturalRect, preferredTransform);
-  CGAffineTransform correctedTransform = CGAffineTransformConcat(
-      preferredTransform, CGAffineTransformMakeTranslation(-displayRect.origin.x, -displayRect.origin.y));
-
-  CGSize displaySize = CGSizeMake(VOEvenSize(displayRect.size.width), VOEvenSize(displayRect.size.height));
-  CGSize renderSize = VOCropSize(displaySize, style.cropAspectRatio);
-  if (!(renderSize.width > 0.0) || !(renderSize.height > 0.0)) {
+  CGSize renderSize = [VOBurnPipeline renderSizeForVideoTrack:videoTrack cropAspectRatio:style.cropAspectRatio];
+  if (CGSizeEqualToSize(renderSize, CGSizeZero)) {
     completion(nil, VOMakeError(VideoOverlayErrorNoVideoTrack, @"The video track has an invalid natural size."));
     return;
   }
-
-  // Shifting the track recentres the kept region inside the smaller renderSize.
-  correctedTransform = CGAffineTransformConcat(
-      correctedTransform,
-      CGAffineTransformMakeTranslation(floor((renderSize.width - displaySize.width) / 2.0),
-                                       floor((renderSize.height - displaySize.height) / 2.0)));
 
   NSArray<VOTextRun *> *textRuns = VOBuildTextRuns(cues, durationSec);
   NSArray<VOImageRun *> *imageRuns = VOBuildImageRuns(cues, durationSec);
@@ -1126,129 +1134,20 @@ static CALayer *VOBuildLayerTree(NSArray<VOTextRun *> *textRuns,
     return;
   }
 
-  __block CALayer *videoLayer = nil;
-  __block CALayer *parentLayer = nil;
-  // Wrap layer-tree building in a CATransaction with actions disabled, avoiding implicit animations.
-  [CATransaction begin];
-  [CATransaction setDisableActions:YES];
-  parentLayer = VOBuildLayerTree(textRuns, imageRuns, renderSize, durationSec, style, &videoLayer);
-  [CATransaction commit];
+  VOOverlayRenderer *overlay = [[VOOverlayRenderer alloc] initWithTextRuns:textRuns
+                                                                 imageRuns:imageRuns
+                                                                renderSize:renderSize
+                                                                     style:style];
 
-  int32_t fps = (int32_t)lround((double)videoTrack.nominalFrameRate);
-  if (fps <= 0 || fps > 240) {
-    fps = 30;
-  }
-
-  AVMutableVideoCompositionLayerInstruction *layerInstruction =
-      [AVMutableVideoCompositionLayerInstruction videoCompositionLayerInstructionWithAssetTrack:videoTrack];
-  [layerInstruction setTransform:correctedTransform atTime:kCMTimeZero];
-
-  AVMutableVideoCompositionInstruction *instruction = [AVMutableVideoCompositionInstruction videoCompositionInstruction];
-  instruction.timeRange = CMTimeRangeMake(kCMTimeZero, duration);
-  instruction.layerInstructions = @[ layerInstruction ];
-
-  AVMutableVideoComposition *videoComposition = [AVMutableVideoComposition videoComposition];
-  videoComposition.renderSize = renderSize;
-  videoComposition.frameDuration = CMTimeMake(1, fps);
-  videoComposition.instructions = @[ instruction ];
-  videoComposition.animationTool =
-      [AVVideoCompositionCoreAnimationTool videoCompositionCoreAnimationToolWithPostProcessingAsVideoLayer:videoLayer
-                                                                                                  inLayer:parentLayer];
-
-  // Pin output to BT.709 SDR; HDR sources through Core Animation come out washed-out and grayish.
-  videoComposition.colorPrimaries = AVVideoColorPrimaries_ITU_R_709_2;
-  videoComposition.colorTransferFunction = AVVideoTransferFunction_ITU_R_709_2;
-  videoComposition.colorYCbCrMatrix = AVVideoYCbCrMatrix_ITU_R_709_2;
-
-  NSError *prepareError = nil;
-  if (![self prepareOutputPath:outputPath error:&prepareError]) {
-    completion(nil, prepareError);
-    return;
-  }
-
-  AVAssetExportSession *exportSession = [[AVAssetExportSession alloc] initWithAsset:asset
-                                                                         presetName:AVAssetExportPresetHighestQuality];
-  if (exportSession == nil) {
-    completion(nil, VOMakeError(VideoOverlayErrorExportSetupFailed,
-                                @"Cannot create AVAssetExportSession with AVAssetExportPresetHighestQuality."));
-    return;
-  }
-  if (![exportSession.supportedFileTypes containsObject:AVFileTypeMPEG4]) {
-    completion(nil, VOMakeError(VideoOverlayErrorExportSetupFailed,
-                                @"This asset cannot be exported as MPEG-4."));
-    return;
-  }
-
-  exportSession.outputURL = [NSURL fileURLWithPath:outputPath];
-  exportSession.outputFileType = AVFileTypeMPEG4;
-  exportSession.videoComposition = videoComposition;
-  exportSession.shouldOptimizeForNetworkUse = YES;
-
-  [exportSession exportAsynchronouslyWithCompletionHandler:^{
-    AVAssetExportSessionStatus status = exportSession.status;
-    NSError *exportError = exportSession.error;
-
-    switch (status) {
-      case AVAssetExportSessionStatusCompleted:
-        completion(outputPath, nil);
-        break;
-
-      case AVAssetExportSessionStatusCancelled:
-        completion(nil, VOMakeError(VideoOverlayErrorExportCancelled, @"Video export was cancelled."));
-        break;
-
-      default: {
-        NSString *message = [NSString
-            stringWithFormat:@"Video export failed (status %ld): %@", (long)status,
-                             exportError.localizedDescription ?: @"unknown error"];
-        NSMutableDictionary *userInfo = [NSMutableDictionary dictionary];
-        userInfo[NSLocalizedDescriptionKey] = message;
-        if (exportError != nil) {
-          userInfo[NSUnderlyingErrorKey] = exportError;
-        }
-        completion(nil, [NSError errorWithDomain:VideoOverlayErrorDomain
-                                            code:VideoOverlayErrorExportFailed
-                                        userInfo:userInfo]);
-        break;
-      }
-    }
-  }];
-}
-
-/// Creates the parent directory and removes the old output file; never touches the source video.
-+ (BOOL)prepareOutputPath:(NSString *)outputPath error:(NSError **)outError
-{
-  NSFileManager *fileManager = [NSFileManager defaultManager];
-  NSString *directory = [outputPath stringByDeletingLastPathComponent];
-
-  if (directory.length > 0 && ![fileManager fileExistsAtPath:directory]) {
-    NSError *createError = nil;
-    if (![fileManager createDirectoryAtPath:directory
-                withIntermediateDirectories:YES
-                                 attributes:nil
-                                      error:&createError]) {
-      if (outError) {
-        *outError = VOMakeError(VideoOverlayErrorOutputNotWritable,
-                                [NSString stringWithFormat:@"Cannot create output directory %@: %@", directory,
-                                                           createError.localizedDescription]);
-      }
-      return NO;
-    }
-  }
-
-  if ([fileManager fileExistsAtPath:outputPath]) {
-    NSError *removeError = nil;
-    if (![fileManager removeItemAtPath:outputPath error:&removeError]) {
-      if (outError) {
-        *outError = VOMakeError(VideoOverlayErrorOutputNotWritable,
-                                [NSString stringWithFormat:@"Cannot remove existing output file %@: %@", outputPath,
-                                                           removeError.localizedDescription]);
-      }
-      return NO;
-    }
-  }
-
-  return YES;
+  [VOBurnPipeline burnAsset:asset
+                 videoTrack:videoTrack
+            cropAspectRatio:style.cropAspectRatio
+                 maxBitRate:style.maxBitRate
+                 outputPath:outputPath
+                     drawer:^(CVPixelBufferRef pixelBuffer, double seconds) {
+                       [overlay drawIntoPixelBuffer:pixelBuffer atTime:seconds];
+                     }
+                 completion:completion];
 }
 
 @end

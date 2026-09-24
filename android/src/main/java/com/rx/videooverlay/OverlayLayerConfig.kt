@@ -58,6 +58,13 @@ internal data class TextLayerConfig(
     val fontWeight: OverlayFontWeight,
 ) : OverlayLayerConfig
 
+/** burnLayers options; null means unset (no crop, no bitrate cap). */
+internal data class LayerBurnOptions(
+    val cropAspectRatio: Float?,
+    /** Video bitrate cap in bits/s (e.g. from an upload size limit). */
+    val maxBitRate: Int?,
+)
+
 /** Parses layersJson; structural problems throw INVALID_LAYERS, cosmetic fields fall back or clamp. */
 internal object OverlayLayerParser {
 
@@ -98,13 +105,21 @@ internal object OverlayLayerParser {
         return layers
     }
 
-    /** Parses optionsJson; unlike layers, cropAspectRatio always falls back silently, never throws. */
-    fun parseOptions(optionsJson: String): Float? {
+    /** Parses optionsJson; unlike layers, every option falls back silently, never throws. */
+    fun parseOptions(optionsJson: String): LayerBurnOptions {
         val json = runCatching { JSONObject(optionsJson) }.getOrNull() ?: JSONObject()
-        if (!json.has("cropAspectRatio")) return null
-        val value = json.optDouble("cropAspectRatio", Double.NaN)
-        if (value.isNaN() || value <= 0.0) return null
-        return value.toFloat()
+        return LayerBurnOptions(
+            cropAspectRatio = positiveOrNull(json, "cropAspectRatio")?.toFloat(),
+            maxBitRate = positiveOrNull(json, "maxBitRate")?.coerceAtMost(Int.MAX_VALUE.toDouble())?.toInt(),
+        )
+    }
+
+    /** Must be finite and positive; anything else means the option is unset. */
+    private fun positiveOrNull(json: JSONObject, key: String): Double? {
+        if (!json.has(key)) return null
+        val value = json.optDouble(key, Double.NaN)
+        if (value.isNaN() || value.isInfinite() || value <= 0.0) return null
+        return value
     }
 
     private fun parseLayer(obj: JSONObject, index: Int): OverlayLayerConfig {

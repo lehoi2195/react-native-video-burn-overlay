@@ -1,5 +1,6 @@
 package com.rx.videooverlay
 
+import android.view.WindowManager
 import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
 import java.util.concurrent.Executors
@@ -50,8 +51,22 @@ class VideoOverlayModule(
         }
     }
 
+    /** The flag lives on the activity's window, so it must change on the UI thread. */
+    override fun setKeepScreenOn(enabled: Boolean) {
+        val activity = reactApplicationContext.currentActivity ?: return
+        activity.runOnUiThread {
+            if (enabled) {
+                activity.window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            } else {
+                activity.window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            }
+        }
+    }
+
     override fun invalidate() {
         executor.shutdown()
+        // JS reload skips effect cleanup; turn it off or the screen stays awake forever.
+        setKeepScreenOn(false)
         super.invalidate()
     }
 

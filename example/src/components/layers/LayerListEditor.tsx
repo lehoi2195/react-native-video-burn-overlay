@@ -36,8 +36,7 @@ export default function LayerListEditor({
   );
   const previousLayerIdsRef = useRef<string[]>(layers.map((layer) => layer.id));
 
-  // A preset swap replaces every id at once; re-expand the first card, not a now-missing one.
-  // A manual collapse (expandedId -> null) must NOT be overridden, so only react to id-set changes.
+  // Re-expand the first card only when the id set changes, keeping manual collapses.
   useEffect(() => {
     const previousIds = previousLayerIdsRef.current;
     const currentIds = layers.map((layer) => layer.id);

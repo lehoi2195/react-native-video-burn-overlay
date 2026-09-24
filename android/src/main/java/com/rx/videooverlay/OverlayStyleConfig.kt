@@ -84,6 +84,8 @@ internal data class OverlayStyleConfig(
     val marginRatio: Float,
     /** Width/height the output is center-cropped to; null keeps the source's own framing. */
     val cropAspectRatio: Float?,
+    /** Video bitrate cap in bits/s (e.g. from an upload size limit); null means no cap. */
+    val maxBitRate: Int?,
 ) {
     companion object {
         const val DEFAULT_TEXT_COLOR = Color.WHITE
@@ -96,6 +98,7 @@ internal data class OverlayStyleConfig(
         val DEFAULT_POSITION = OverlayPosition.Preset.BOTTOM_LEFT
         const val DEFAULT_MARGIN_RATIO = 0.05f
         val DEFAULT_CROP_ASPECT_RATIO: Float? = null
+        val DEFAULT_MAX_BIT_RATE: Int? = null
 
         val DEFAULT = OverlayStyleConfig(
             textColor = DEFAULT_TEXT_COLOR,
@@ -109,6 +112,7 @@ internal data class OverlayStyleConfig(
             position = DEFAULT_POSITION,
             marginRatio = DEFAULT_MARGIN_RATIO,
             cropAspectRatio = DEFAULT_CROP_ASPECT_RATIO,
+            maxBitRate = DEFAULT_MAX_BIT_RATE,
         )
     }
 }
@@ -134,7 +138,16 @@ internal object OverlayStyleParser {
             position = parsePosition(json),
             marginRatio = parseMarginRatio(json),
             cropAspectRatio = parseCropAspectRatio(json),
+            maxBitRate = parseMaxBitRate(json),
         )
+    }
+
+    /** Must be finite and positive; anything else means no cap. */
+    private fun parseMaxBitRate(json: JSONObject): Int? {
+        if (!json.has("maxBitRate")) return OverlayStyleConfig.DEFAULT_MAX_BIT_RATE
+        val value = json.optDouble("maxBitRate", Double.NaN)
+        if (value.isNaN() || value <= 0.0) return OverlayStyleConfig.DEFAULT_MAX_BIT_RATE
+        return value.coerceAtMost(Int.MAX_VALUE.toDouble()).toInt()
     }
 
     /** Must be finite and positive; anything else keeps the source's own framing. */
@@ -177,7 +190,7 @@ internal object OverlayStyleParser {
         return value.toFloat()
     }
 
-    /** 0 explicitly disables the stroke; unlike fontSize, 0 is a valid value, not a fallback trigger. */
+    /** 0 disables the stroke; unlike fontSize, 0 is valid, not a fallback trigger. */
     private fun parseStrokeWidth(json: JSONObject): Float? {
         if (!json.has("strokeWidth")) return OverlayStyleConfig.DEFAULT_STROKE_WIDTH
         val value = json.optDouble("strokeWidth", Double.NaN)

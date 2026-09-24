@@ -88,8 +88,7 @@ export default function App(): ReactElement {
 
   // True while a picked asset is being copied into app cache storage (see pickVideo/pickImage).
   const [isProcessingPick, setIsProcessingPick] = useState(false);
-  // Last cache copy per slot, so a repeat pick deletes the stale one.
-  // Never set for recorded video, since that file is not our copy.
+  // Last cache copy per slot, deleted on re-pick; never set for recorded video.
   const previousPickedVideoPathRef = useRef<string | null>(null);
   const previousPickedImagePathRef = useRef<string | null>(null);
 
@@ -129,11 +128,7 @@ export default function App(): ReactElement {
     setIsProcessingPick(true);
     setErrorMessage('');
     try {
-      // Never trust the picker's raw uri: Android 13+ Photo Picker returns
-      // a synthetic FUSE path that only reads the exact picked item.
-      // Writing the sibling `_burned.mp4` fails with EFAULT there.
-      // Reads can silently fail too, likely causing the black preview.
-      // Copying into app-owned cache storage first sidesteps all of that.
+      // Picker URIs can be unreadable/unwritable FUSE paths (Android 13+), so copy to cache first.
       const copiedPath = await copyPickedAssetToCache(asset, 'mp4');
       if (previousPickedVideoPathRef.current) {
         deleteCachedAsset(previousPickedVideoPathRef.current);
@@ -181,9 +176,7 @@ export default function App(): ReactElement {
     }
   }, []);
 
-  // Extracted burn logic so handleRecorded can trigger it without waiting on stale sourcePath state.
-  // cuesOverride carries the recorder's pre-built per-second location-stamp cues, bypassing the
-  // mode-driven single-cue path used for picked video/image.
+  // Standalone so handleRecorded avoids stale sourcePath; cuesOverride carries the recorder's per-second cues.
   const runBurn = useCallback(
     async (
       path: string,
@@ -566,8 +559,7 @@ const styles = StyleSheet.create({
   modeButtonSelected: {
     backgroundColor: '#007AFF',
   },
-  // Distinct accent (vs. the #007AFF used everywhere else) so the top-level Text/Image toggle
-  // reads as its own section rather than blending in with the other action buttons.
+  // Distinct accent so the Text/Image toggle reads as its own section.
   topLevelModeButtonSelected: {
     backgroundColor: '#AF52DE',
   },
@@ -615,10 +607,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
   },
-  // Same look as secondaryButton, but this button sits alone in the ScrollView's column flow
-  // (not inside a flexDirection: 'row' actionRow), so flex: 1 would grow it to fill all
-  // remaining vertical space instead of sharing a row's width — alignSelf: 'stretch' keeps the
-  // full-width look without that.
+  // Alone in a column, not a row: alignSelf stretch keeps full width without flex growth.
   imagePickButton: {
     alignSelf: 'stretch',
     paddingVertical: 12,

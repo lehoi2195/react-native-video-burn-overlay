@@ -13,9 +13,9 @@ internal class VideoLayerBurner(
         engine.prepareOutput()
 
         val layers = OverlayLayerParser.parse(layersJson)
-        val cropAspectRatio = OverlayLayerParser.parseOptions(optionsJson)
+        val options = OverlayLayerParser.parseOptions(optionsJson)
 
-        engine.transcode(cropAspectRatio) { ctx ->
+        engine.transcode(options.cropAspectRatio, options.maxBitRate) { ctx ->
             LayerRenderer(
                 ctx.outputWidth,
                 ctx.outputHeight,

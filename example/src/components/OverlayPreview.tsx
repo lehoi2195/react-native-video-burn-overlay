@@ -18,8 +18,7 @@ import { useVideoThumbnail } from '../utils/useVideoThumbnail';
 // Mirrors the native font-size formula: max(14, min(frameW,frameH) * 0.032) * fontScale.
 const FONT_SIZE_RATIO = 0.032;
 const MIN_FONT_SIZE = 14;
-// fontSize is documented as absolute px in the OUTPUT VIDEO's own pixel space, not preview dp —
-// used to scale it down for display when the real source width isn't known (e.g. recorded video).
+// fontSize is output-video px; scale it down when the source width is unknown.
 const DEFAULT_VIDEO_WIDTH = 1920;
 const LINE_GAP_RATIO = 0.35;
 const STROKE_OFFSET_RATIO = 0.06;
@@ -77,8 +76,7 @@ export default function OverlayPreview({
   const [frameSize, setFrameSize] = useState<Size>(ZERO_SIZE);
   const [measuredContentSize, setMeasuredContentSize] =
     useState<Size>(ZERO_SIZE);
-  // No react-native-video/ExoPlayer here — a static extracted frame avoids the media3 version
-  // conflict with react-native-vision-camera entirely (see example/README.md).
+  // A static frame, not react-native-video, avoids the media3 conflict with vision-camera.
   const thumbnailUri = useVideoThumbnail(sourcePath ?? '');
 
   const handleFrameLayout = useCallback((event: LayoutChangeEvent): void => {
@@ -98,12 +96,7 @@ export default function OverlayPreview({
   const contentSize = customContentSize ?? measuredContentSize;
   const isReady = frameSize.width > 0 && contentSize.width > 0;
 
-  // style.fontSize is absolute px in the OUTPUT VIDEO's pixel space, not preview dp — scale it down
-  // by how much narrower the preview frame is than the real video so it displays proportionally.
-  // Floored at 1, not MIN_FONT_SIZE: this is meant to genuinely LOOK as tiny as it'll really burn
-  // — MIN_FONT_SIZE's 14 is a readability floor for the auto formula, not an anti-crash guard, and
-  // would mask exactly the too-small values a user needs to see. 1 only guards frameSize still
-  // being {0,0} pre-layout, since RN's <Text> throws on fontSize <= 0.
+  // Scale output-px fontSize to preview size; floor 1 (not MIN_FONT_SIZE) so tiny sizes show honestly.
   const fontSize =
     style.fontSize !== undefined
       ? Math.max(

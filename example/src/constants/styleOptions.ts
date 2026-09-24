@@ -5,8 +5,7 @@ import type { OverlayFontWeight, ResolvedOverlayStyle } from '../types';
 // Seed value for the Auto-to-Fixed switch, roughly matching the auto formula's 1080p output.
 export const DEFAULT_FONT_SIZE_PX = 40;
 
-// fontSize stays undefined by default — auto/fontScale mode self-scales correctly for any video
-// resolution, while a fixed fontSize is an opt-in advanced feature (see README's fontSize note).
+// fontSize defaults to undefined: auto/fontScale sizing adapts to any resolution.
 export const DEFAULT_STYLE: ResolvedOverlayStyle = {
   textColor: '#FFFFFF',
   strokeColor: '#000000',
@@ -113,8 +112,7 @@ export const OPACITY_MIN = 0;
 export const OPACITY_MAX = 1;
 export const OPACITY_STEP = 0.05;
 
-// Small default box; photos are captured into a fixed size regardless of actual resolution.
-// Width and height are independent so the capture box needn't be square.
+// Small default capture box; width and height are independent, so it needn't be square.
 export const DEFAULT_IMAGE_OVERLAY_WIDTH = 30;
 export const DEFAULT_IMAGE_OVERLAY_HEIGHT = 30;
 export const IMAGE_OVERLAY_DIMENSION_MIN = 10;

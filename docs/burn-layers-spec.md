@@ -217,6 +217,10 @@ GPU. Extending it is additive.
 
 ### 5.2 iOS (`ios/`)
 
+> **Superseded (post-0.0.6):** iOS no longer uses Core Animation. Each layer is pre-rendered
+> once into a bitmap and blitted per frame through the shared `VOBurnPipeline`
+> (`AVAssetReader` → CPU blit → `AVAssetWriter`). The notes below describe the original design.
+
 Already `AVAssetExportSession` + `AVVideoCompositionCoreAnimationTool` over a `CALayer`
 tree built **once** for the whole export — there is no per-frame app code at all.
 

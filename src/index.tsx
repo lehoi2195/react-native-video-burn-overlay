@@ -62,26 +62,28 @@ export interface BurnOverlayOptions {
   cues: OverlayCue[];
   /** One style for the whole call. */
   style?: OverlayStyle;
-  /**
-   * Center-crops the output to this width/height ratio, e.g. `3/4` for portrait.
-   * Only ever trims; the source is never letterboxed or scaled up.
-   * Anchoring and auto font size compute against the cropped frame.
-   * Omit to keep the source's own framing.
-   */
+  /** Center-crops output to this width/height ratio (e.g. `3/4`); trims only, never letterboxes. */
   cropAspectRatio?: number;
+  /** Video bitrate cap in bits/s, e.g. from an upload size limit; omit for no cap. */
+  maxBitRate?: number;
+}
+
+/** Blocks idle auto-lock (not the power button) while enabled; turn it off when done. */
+export function setKeepScreenOn(enabled: boolean): void {
+  NativeVideoOverlay.setKeepScreenOn(enabled);
 }
 
 /** Burns cues (text or image) permanently into the video; source video is never modified. */
 export async function burnOverlay(
   options: BurnOverlayOptions
 ): Promise<string> {
-  const { inputPath, outputPath, cues, style, cropAspectRatio } = options;
-  // cropAspectRatio rides the style payload rather than a fifth bridge argument: that JSON is an
-  // internal wire format both platforms already parse, so one number needs no codegen change.
+  const { inputPath, outputPath, cues, style, cropAspectRatio, maxBitRate } =
+    options;
+  // Options ride the style JSON both platforms already parse, so they need no codegen change.
   return NativeVideoOverlay.burnOverlay(
     inputPath,
     outputPath,
     JSON.stringify(cues),
-    JSON.stringify({ ...(style ?? {}), cropAspectRatio })
+    JSON.stringify({ ...(style ?? {}), cropAspectRatio, maxBitRate })
   );
 }
